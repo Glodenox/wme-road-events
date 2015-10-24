@@ -45,23 +45,23 @@
 						callback(data);
 					});
 				}
-			}
+			};
 		}(),
 		// Transform the raw data to an object that can be used by UI.ItemDetail.fill()
 		'transformData': function(data) {
 			var cleanDateTime = function(datetime) {
 				var cleanedUp = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.exec(datetime);
-				if (cleanedUp == null) {
+				if (cleanedUp === null) {
 					return datetime;
 				}
 				return cleanedUp[0];
-			}
-			if (data.hindrance == null) {
+			};
+			if (data.hindrance === null) {
 				data.hindrance = {
 					'description': 'No hindrance'
 				};
 			}
-			if (data.contactDetails == null) {
+			if (data.contactDetails === null) {
 				data.contactDetails = {
 					'organisation': 'No organisation specified'
 				};
@@ -148,7 +148,7 @@
 					}
 				},
 				'show': function() {
-					if (ul.parentNode == null) {
+					if (ul.parentNode === null) {
 						document.getElementById('sidepanel-gipod').appendChild(ul);
 					}
 					ul.style.display = 'block';
@@ -191,7 +191,7 @@
 						sectionData.appendChild(sectionHeader);
 						var p = document.createElement('p');
 						group.items.map(function(item) {
-							if (item[1] != null && item[1] !== '' && item[1] !== ' ') {
+							if (item[1] !== null && item[1] !== '' && item[1] !== ' ') {
 								var strong = document.createElement('strong');
 								strong.appendChild(document.createTextNode(item[0] + ": "));
 								p.appendChild(strong);
@@ -208,7 +208,7 @@
 					});
 				},
 				'show': function() {
-					if (pane.parentNode == null) {
+					if (pane.parentNode === null) {
 						document.getElementById('sidepanel-gipod').appendChild(pane);
 					}
 					pane.style.display = 'block';
@@ -225,9 +225,9 @@
 				'addEventListener': function(listener) {
 					listeners.push(listener);
 				},
-			}
+			};
 		}()
-	}
+	};
 
 	function gipodInit() {
 		var userInfo, navTabs, tabContent, gipodTab, gipodContent, searchButton;
@@ -239,13 +239,13 @@
 			return;
 		}
 		userInfo = document.getElementById('user-info');
-		if (userInfo == null) {
+		if (userInfo === null) {
 			setTimeout(gipodInit, 660);
 			log('User info unavailable, map still loading');
 			return;
 		}
 		navTabs = userInfo.querySelector('.nav-tabs');
-		if (navTabs == null) {
+		if (navTabs === null) {
 			setTimeout(gipodInit, 660);
 			log('Nav tabs unavailable, map still loading');
 			return;
@@ -296,7 +296,7 @@
 		// Clear out the previous results or loading text
 		UI.ResultList.clear();
 		data.map(addGIPODItem);
-		if (data.length == 0) {
+		if (data.length === 0) {
 			addResult('No results found', 'Please zoom out or pan to another area');
 		}
 	}
