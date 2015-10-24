@@ -1,9 +1,10 @@
 <?php
 	/**
+	* This proxy-like file is necessary as GIPOD cannot be accessed with HTTPS. Any cross-origin request from an HTTPS page to HTTP page through XMLHttpRequest gets blocked.
 	* In addition to this file, the HTTP header Access-Control-Allow-Origin must be set as well. My hosting didn't allow for changing this header through PHP, but this .htaccess file worked fine:
 	*	<IfModule mod_headers.c>
-			Header set Access-Control-Allow-Origin "*"
-		</IfModule>
+	*		Header set Access-Control-Allow-Origin "*"
+	*	</IfModule>
 	*/
 
 	$bbox = $_REQUEST['bbox'];
@@ -27,6 +28,7 @@
 	$h = curl_init();
 	curl_setopt_array($h, array(
 	CURLOPT_URL => $curlopt_url,
+	// TODO: should we hide that we're a proxy?
 	CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:42.0) Gecko/20100101 Firefox/42.0'));
 	curl_exec($h);
 	curl_close($h);
