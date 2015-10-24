@@ -5,8 +5,8 @@
 // @include     https://www.waze.com/*/editor/*
 // @include     https://www.waze.com/editor/*
 // @include     https://editor-beta.waze.com/*
-// @downloadURL   https://tomputtemans.com/waze-scripts/WME_GIPOD_data.user.js
-// @version     0.5
+// @downloadURL https://greasyfork.org/scripts/13316-wme-gipod-data/code/WME%20GIPOD%20data.user.js
+// @version     0.6
 // @grant       none
 // ==/UserScript==
 
@@ -58,7 +58,9 @@
 			};
 			if (data.hindrance === null) {
 				data.hindrance = {
-					'description': 'No hindrance'
+					'description': 'No hindrance',
+					'locations': [],
+					'effects': []
 				};
 			}
 			if (data.contactDetails === null) {
@@ -103,7 +105,7 @@
 		},
 		'hasArea': function(data) {
 			return (data.location.geometry.type == 'Polygon' && data.location.geometry.coordinates && data.location.geometry.coordinates[0]) ||
-					(data.location.geometry.type == 'MultiPolygon' && data.location.geometry.coordinates && data.location.geometry.coordinates[0] && data.location.geometry.coordinates[0][0] !== null);
+					(data.location.geometry.type == 'MultiPolygon' && data.location.geometry.coordinates && data.location.geometry.coordinates[0] && data.location.geometry.coordinates[0][0]);
 		},
 		'getAreaCoords': function(data) {
 			var rings = [];
@@ -135,7 +137,14 @@
 				'addResult': function(title, additionalInfo, eventHandler) {
 					var li = document.createElement('li');
 					li.className = (eventHandler ? 'result session-available' : 'result');
-					li.innerHTML = '<p class="title">' + title + '</p><p class="additional-info">' + additionalInfo + '</p>';
+					var head = document.createElement('p');
+					head.className = 'title';
+					head.appendChild(document.createTextNode(title));
+					li.appendChild(head);
+					var subhead = document.createElement('p');
+					subhead.className = 'additional-info';
+					subhead.appendChild(document.createTextNode(additionalInfo));
+					li.appendChild(subhead);
 					if (typeof eventHandler === 'function') {
 						li.addEventListener('click', eventHandler);
 					}
@@ -181,6 +190,28 @@
 
 			return {
 				'fill': function(data) {
+					var formatDataField = function(field) {
+						if (typeof field == 'string') {
+							if (/^https?:\/\//.test(field)) { // Website
+								var a = document.createElement('a');
+								a.target = '_blank';
+								a.href = encodeURI(field);
+								a.appendChild(document.createTextNode(field));
+								return a;
+							} else if (/^[^ ]+@[^ ]+\.[a-zA-Z0-9]+$/.test(field)) { // E-mail
+								var a = document.createElement('a');
+								a.target = '_blank';
+								a.href = encodeURI('mailto:' + field);
+								a.appendChild(document.createTextNode(field));
+								return a;
+							} else {
+								return document.createTextNode(field);
+							}
+						} else {
+							return document.createTextNode(JSON.stringify(field, null, '\t'));
+						}
+					};
+
 					while (details.firstChild) {
 						details.removeChild(details.firstChild);
 					}
@@ -191,15 +222,11 @@
 						sectionData.appendChild(sectionHeader);
 						var p = document.createElement('p');
 						group.items.map(function(item) {
-							if (item[1] !== null && item[1] !== '' && item[1] !== ' ') {
+							if (item[1] !== null && typeof item[1] !== 'undefined' && item[1] !== '' && item[1] !== ' ') {
 								var strong = document.createElement('strong');
 								strong.appendChild(document.createTextNode(item[0] + ": "));
 								p.appendChild(strong);
-								if (typeof item[1] == 'string') {
-									p.appendChild(document.createTextNode(item[1]));
-								} else {
-									p.appendChild(document.createTextNode(JSON.stringify(item[1], null, '\t')));
-								}
+								p.appendChild(formatDataField(item[1]));
 								p.appendChild(document.createElement('br'));
 							}
 						});
@@ -212,15 +239,14 @@
 						document.getElementById('sidepanel-gipod').appendChild(pane);
 					}
 					pane.style.display = 'block';
-					listeners.map(function(listener) {
-						listener.eventFired('shown');
-					});
 				},
 				'hide': function() {
+					if (pane.style.display == 'block') {
+						listeners.map(function(listener) {
+							listener.eventFired('hidden');
+						});
+					}
 					pane.style.display = 'none';
-					listeners.map(function(listener) {
-						listener.eventFired('hidden');
-					});
 				},
 				'addEventListener': function(listener) {
 					listeners.push(listener);
@@ -255,9 +281,14 @@
 		// Initialise layer and event handlers
 		GIPOD.layer = new OL.Layer.Vector("GIPOD");
 		Waze.map.addLayer(GIPOD.layer);
-		selectFeature = new OpenLayers.Control.SelectFeature(GIPOD.layer, {onSelect: log});
-		Waze.map.addControl(selectFeature);
-		selectFeature.activate();
+		// TODO: doesn't work yet, missing something apparently
+		GIPOD.layer.events.register('featureclick', null, function(e) {
+			log(e);
+			if (e.feature.attributes.type == 'workPoint') {
+				GIPOD.getItem(e.feature.attributes.id, showItem);
+			}
+			return false;
+		}, true);
 
 		// Create GIPOD tab
 		tabContent = userInfo.querySelector('.tab-content');
@@ -295,19 +326,23 @@
 	function processGIPODData(data) {
 		// Clear out the previous results or loading text
 		UI.ResultList.clear();
+		// Remove all existing features from the map
+		GIPOD.layer.removeAllFeatures();
 		data.map(addGIPODItem);
 		if (data.length === 0) {
 			addResult('No results found', 'Please zoom out or pan to another area');
 		}
+		UI.ItemDetail.hide();
+		UI.ResultList.show();
 	}
 
-	function addGIPODItem(data) {
+	function addGIPODItem(data, index) {
 		var lonlat = new OL.LonLat(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(GIPOD.projection, Waze.map.getProjectionObject());
 
 		// Add as a list item
 		var gipodItem = UI.ResultList.addResult(
-			(data.importantHindrance ? '(!) ' : '') + data.description,
-			data.startDateTime + ' - ' + data.endDateTime + '<br />(' + data.owner + ')',
+			(index+1) + '. ' + (data.importantHindrance ? '(!) ' : '') + data.description,
+			data.startDateTime + ' - ' + data.endDateTime,
 			function() {
 				Waze.map.panTo(lonlat);
 				GIPOD.getItem(this.dataset.id, showItem);
@@ -315,8 +350,10 @@
 		gipodItem.dataset.id = data.gipodId;
 
 		// Add as point on the map
-		var point = new OL.Geometry.Point(lonlat.lon, lonlat.lat);
-		var featurePoint = new OpenLayers.Feature.Vector(point, { type: 'workPoint', description: data.description, id: data.gipodId }, { fillOpacity: 0.8, pointRadius: 10, fillColor: '#f66f1e', strokeColor: '#eeeeee' });
+		var featurePoint = new OpenLayers.Feature.Vector(
+			new OL.Geometry.Point(lonlat.lon, lonlat.lat),
+			{ type: 'workPoint', description: data.description, id: data.gipodId },
+			{ pointRadius: 10, fillColor: (data.importantHindrance ? '#ff3333' : '#f66f1e'), strokeColor: '#eee', label: (index+1).toString(), fontColor: '#fff', fontWeight: 'bold' });
 		GIPOD.layer.addFeatures([featurePoint]);
 	}
 
