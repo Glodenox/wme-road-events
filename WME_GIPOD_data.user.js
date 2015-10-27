@@ -5,8 +5,7 @@
 // @include     https://www.waze.com/*/editor/*
 // @include     https://www.waze.com/editor/*
 // @include     https://editor-beta.waze.com/*
-// @downloadURL https://greasyfork.org/scripts/13316-wme-gipod-data/code/WME%20GIPOD%20data.user.js
-// @version     0.6
+// @version     0.6.1
 // @grant       none
 // ==/UserScript==
 
@@ -330,7 +329,7 @@
 		GIPOD.layer.removeAllFeatures();
 		data.map(addGIPODItem);
 		if (data.length === 0) {
-			addResult('No results found', 'Please zoom out or pan to another area');
+			UI.ResultList.addResult('No results found', 'Please zoom out or pan to another area');
 		}
 		UI.ItemDetail.hide();
 		UI.ResultList.show();
