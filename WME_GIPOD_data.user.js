@@ -5,143 +5,40 @@
 // @include     https://www.waze.com/*/editor/*
 // @include     https://www.waze.com/editor/*
 // @include     https://editor-beta.waze.com/*
-// @version     0.6.1
+// @version     0.7
 // @grant       none
 // ==/UserScript==
 
 (function() {
-	var selectFeature;
-	var GIPOD = {
-		'url': 'https://tomputtemans.com/waze-scripts/gipod-data.php',
-		'projection': new OL.Projection("EPSG:4326"),
-		'update': function(callback) {
-			// Obtain the bounds and transform them to the projection used by GIPOD
-			var bounds = Waze.map.calculateBounds().transform(Waze.map.getProjectionObject(), GIPOD.projection);
-			// bounding box: left bottom coordinate | right top coordinate
-			var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
-
-			// Clear out the results
-			UI.ResultList.clear();
-			UI.ResultList.addResult('Loading...', 'Retrieving information from GIPOD');
-			$.ajax({
-				url: GIPOD.url + '?bbox=' + bbox
-			}).done(function(response) {
-				callback(JSON.parse(response));
-			});
-		},
-		'getItem': function() {
-			var cache = [];
-
-			return function(gipodId, callback) {
-				if (cache[gipodId]) {
-					callback(cache[gipodId]);
-				} else {
-					$.ajax({
-						url: GIPOD.url + '?id=' + gipodId
-					}).done(function(response) {
-						var data = JSON.parse(response);
-						cache[data.gipodId] = data;
-						callback(data);
-					});
-				}
-			};
-		}(),
-		// Transform the raw data to an object that can be used by UI.ItemDetail.fill()
-		'transformData': function(data) {
-			var cleanDateTime = function(datetime) {
-				var cleanedUp = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.exec(datetime);
-				if (cleanedUp === null) {
-					return datetime;
-				}
-				return cleanedUp[0];
-			};
-			if (data.hindrance === null) {
-				data.hindrance = {
-					'description': 'No hindrance',
-					'locations': [],
-					'effects': []
-				};
-			}
-			if (data.contactDetails === null) {
-				data.contactDetails = {
-					'organisation': 'No organisation specified'
-				};
-			}
-			return [
-				{
-					'name': 'Info',
-					'items': [
-						['Description', data.description],
-						['Period', cleanDateTime(data.startDateTime) + ' to ' + cleanDateTime(data.endDateTime) + (data.type ? ' (' + data.type + ')' : '')],
-						[(data.location.cities.length > 1 ? 'Cities' : 'City'), data.location.cities.join(', ')],
-						['Status', data.state],
-						['Latest update', cleanDateTime(data.latestUpdate)],
-						['GIPOD ID', data.gipodId]
-					]
-				},
-				{
-					'name': 'Hindrance',
-					'items': [
-						['Important hindrance', (data.hindrance.important ? 'Yes' : 'No')],
-						['Direction', data.hindrance.direction],
-						['Description', data.hindrance.description],
-						[(data.hindrance.locations.length > 1 ? 'Locations' : 'Location'), data.hindrance.locations.join(', ')],
-						[(data.hindrance.effects.length > 1 ? 'Effects' : 'Effect'), data.hindrance.effects.join(' • ')]
-					]
-				},
-				{
-					'name': 'Contact',
-					'items': [
-						['URL', data.url],
-						['Owner', data.owner],
-						['Contractor', data.contractor],
-						['Organisation', data.contactDetails.organisation],
-						['E-mail', data.contactDetails.email],
-						['Phone number', data.contactDetails.phoneNumber1],
-					]
-				}
-			];
-		},
-		'hasArea': function(data) {
-			return (data.location.geometry.type == 'Polygon' && data.location.geometry.coordinates && data.location.geometry.coordinates[0]) ||
-					(data.location.geometry.type == 'MultiPolygon' && data.location.geometry.coordinates && data.location.geometry.coordinates[0] && data.location.geometry.coordinates[0][0]);
-		},
-		'getAreaCoords': function(data) {
-			var rings = [];
-			if (data.location.geometry.type == 'Polygon') {
-				var ring = [];
-				data.location.geometry.coordinates[0].map(function(coord) {
-					ring.push({x: coord[0], y: coord[1]});
-				});
-				rings.push(ring);
-			} else if (data.location.geometry.type == 'MultiPolygon') {
-				data.location.geometry.coordinates[0].map(function(coords) {
-					var ring = [];
-					coords.map(function(coord) {
-						ring.push({x: coord[0], y: coord[1]});
-					});
-					rings.push(ring);
-				});
-			}
-			return rings;
-		}
-	};
 	var UI = {
-		'ResultList': function() {
+		ResultList: function() {
 			// List to contain results encapsulated in this object
 			var ul = document.createElement('ul');
 			ul.className = 'result-list';
+			ul.style.paddingLeft = '10px';
 
 			return {
-				'addResult': function(title, additionalInfo, eventHandler) {
+				addResult: function(title, additionalInfo, eventHandler, barColor) {
+					ul.style.listStyleType = 'numeric';
+					ul.style.marginTop = '5px';
 					var li = document.createElement('li');
 					li.className = (eventHandler ? 'result session-available' : 'result');
+					li.style.fontWeight = 'bold';
+					li.style.paddingLeft = '0';
 					var head = document.createElement('p');
 					head.className = 'title';
+					if (barColor) {
+						head.style.paddingLeft = '5px';
+						head.style.borderLeft = '3px solid ' + barColor;
+					}
 					head.appendChild(document.createTextNode(title));
 					li.appendChild(head);
 					var subhead = document.createElement('p');
 					subhead.className = 'additional-info';
+					subhead.style.fontWeight = 'normal';
+					if (barColor) {
+						subhead.style.paddingLeft = '8px';
+					}
 					subhead.appendChild(document.createTextNode(additionalInfo));
 					li.appendChild(subhead);
 					if (typeof eventHandler === 'function') {
@@ -150,25 +47,37 @@
 					ul.appendChild(li);
 					return li;
 				},
-				'clear': function() {
+				clear: function() {
 					while (ul.firstChild) {
 						ul.removeChild(ul.firstChild);
 					}
 				},
-				'show': function() {
+				setStatus: function(status) {
+					this.clear();
+					if (status === 'noResult') {
+						this.addResult('No results found', 'Please zoom out or pan to another area')
+					} else if (status === 'loading') {
+						this.addResult('Loading...', 'Retrieving information from GIPOD');
+					} else {
+						log('Invalid status received: ' + status);
+					}
+					ul.style.listStyleType = 'none';
+				},
+				show: function() {
 					if (ul.parentNode === null) {
 						document.getElementById('sidepanel-gipod').appendChild(ul);
 					}
 					ul.style.display = 'block';
 				},
-				'hide': function() {
+				hide: function() {
 					ul.style.display = 'none';
 				}
 			};
 		}(),
-		'ItemDetail': function() {
+		ItemDetail: function() {
 			var pane = document.createElement('div');
 			pane.style.display = 'none';
+			pane.style.marginTop = '8px';
 			var title = document.createElement('h4');
 			var details = document.createElement('div');
 			var backButton = document.createElement('button');
@@ -180,7 +89,7 @@
 				this.parentNode.style.display = 'none';
 				document.querySelector('#sidepanel-gipod .result-list').style.display = 'block';
 				listeners.map(function(listener) {
-					listener.eventFired('hidden');
+					listener('hidden');
 				});
 			});
 			pane.appendChild(title);
@@ -188,7 +97,7 @@
 			pane.appendChild(backButton);
 
 			return {
-				'fill': function(data) {
+				fill: function(data) {
 					var formatDataField = function(field) {
 						if (typeof field == 'string') {
 							if (/^https?:\/\//.test(field)) { // Website
@@ -233,25 +142,135 @@
 						details.appendChild(sectionData);
 					});
 				},
-				'show': function() {
+				show: function() {
 					if (pane.parentNode === null) {
 						document.getElementById('sidepanel-gipod').appendChild(pane);
 					}
 					pane.style.display = 'block';
 				},
-				'hide': function() {
+				hide: function() {
 					if (pane.style.display == 'block') {
 						listeners.map(function(listener) {
-							listener.eventFired('hidden');
+							listener('hidden');
 						});
 					}
 					pane.style.display = 'none';
 				},
-				'addEventListener': function(listener) {
+				addEventListener: function(listener) {
 					listeners.push(listener);
 				},
 			};
 		}()
+	};
+	var GIPOD = {
+		url: 'https://tomputtemans.com/waze-scripts/gipod-data.php',
+		projection: new OL.Projection("EPSG:4326"),
+		parseDatetime: function(datetime, longFormat) {
+			// Input: 2014-12-22T00:00:00 - Output: 2014-12-22 00:00
+			return datetime.replace(/(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(:\d{2})(\.\d+)?/, (longFormat ? "$1 $2$3$4" : "$1 $2"));
+		},
+		update: function(callback) {
+			// Obtain the bounds and transform them to the projection used by GIPOD
+			var bounds = Waze.map.calculateBounds().transform(Waze.map.getProjectionObject(), GIPOD.projection);
+			// bounding box: left bottom coordinate | right top coordinate
+			var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
+
+			UI.ResultList.setStatus('loading');
+			$.ajax({
+				url: GIPOD.url + '?bbox=' + bbox
+			}).done(function(response) {
+				callback(JSON.parse(response));
+			});
+		},
+		getItem: function() {
+			var cache = [];
+
+			return function(gipodId, callback) {
+				if (cache[gipodId]) {
+					callback(cache[gipodId]);
+				} else {
+					$.ajax({
+						url: GIPOD.url + '?id=' + gipodId
+					}).done(function(response) {
+						var data = JSON.parse(response);
+						cache[data.gipodId] = data;
+						callback(data);
+					});
+				}
+			};
+		}(),
+		// Transform the raw data to an object that can be used by UI.ItemDetail.fill()
+		transformData: function(data) {
+			if (data.hindrance === null) {
+				data.hindrance = {
+					description: 'No hindrance',
+					locations: [],
+					effects: []
+				};
+			}
+			if (data.contactDetails === null) {
+				data.contactDetails = {
+					organisation: 'No organisation specified'
+				};
+			}
+			return [
+				{
+					name: 'Info',
+					items: [
+						['Description', data.description],
+						['Period', this.parseDatetime(data.startDateTime) + ' - ' + this.parseDatetime(data.endDateTime) + (data.type ? ' (' + data.type + ')' : '')],
+						[(data.location.cities.length > 1 ? 'Cities' : 'City'), data.location.cities.join(', ')],
+						['Status', data.state],
+						['Latest update', this.parseDatetime(data.latestUpdate, true)],
+						['GIPOD ID', data.gipodId]
+					]
+				},
+				{
+					name: 'Hindrance',
+					items: [
+						['Important hindrance', (data.hindrance.important ? 'Yes' : 'No')],
+						['Direction', data.hindrance.direction],
+						['Description', data.hindrance.description],
+						[(data.hindrance.locations.length > 1 ? 'Locations' : 'Location'), data.hindrance.locations.join(', ')],
+						[(data.hindrance.effects.length > 1 ? 'Effects' : 'Effect'), data.hindrance.effects.join(' • ')]
+					]
+				},
+				{
+					name: 'Contact',
+					items: [
+						['URL', data.url],
+						['Owner', data.owner],
+						['Contractor', data.contractor],
+						['Organisation', data.contactDetails.organisation],
+						['E-mail', data.contactDetails.email],
+						['Phone number', data.contactDetails.phoneNumber1],
+					]
+				}
+			];
+		},
+		hasArea: function(data) {
+			return (data.location.geometry.type == 'Polygon' && data.location.geometry.coordinates && data.location.geometry.coordinates[0]) ||
+					(data.location.geometry.type == 'MultiPolygon' && data.location.geometry.coordinates && data.location.geometry.coordinates[0] && data.location.geometry.coordinates[0][0]);
+		},
+		getAreaCoords: function(data) {
+			var rings = [];
+			if (data.location.geometry.type == 'Polygon') {
+				var ring = [];
+				data.location.geometry.coordinates[0].map(function(coord) {
+					ring.push({x: coord[0], y: coord[1]});
+				});
+				rings.push(ring);
+			} else if (data.location.geometry.type == 'MultiPolygon') {
+				data.location.geometry.coordinates[0].map(function(coords) {
+					var ring = [];
+					coords.map(function(coord) {
+						ring.push({x: coord[0], y: coord[1]});
+					});
+					rings.push(ring);
+				});
+			}
+			return rings;
+		}
 	};
 
 	function gipodInit() {
@@ -278,16 +297,34 @@
 		log('GIPOD initated');
 
 		// Initialise layer and event handlers
-		GIPOD.layer = new OL.Layer.Vector("GIPOD");
+		GIPOD.layer = new OL.Layer.Vector("GIPOD", {
+			styleMap: new OL.StyleMap({
+				'default': new OL.Style(OL.Util.applyDefaults({
+					pointRadius: 10,
+					strokeColor: '#eee',
+					fontColor: '#fff',
+					fontWeight: 'bold'
+				}, OL.Feature.Vector.style["default"])),
+				'select': new OL.Style(OL.Util.applyDefaults({
+					pointRadius: 10,
+					strokeColor: '#aaa',
+					fontColor: '#fff',
+					fontWeight: 'bold'
+				}, OL.Feature.Vector.style["select"]))
+			})
+		});
 		Waze.map.addLayer(GIPOD.layer);
 		// TODO: doesn't work yet, missing something apparently
-		GIPOD.layer.events.register('featureclick', null, function(e) {
-			log(e);
-			if (e.feature.attributes.type == 'workPoint') {
-				GIPOD.getItem(e.feature.attributes.id, showItem);
+		var selectFeature = new OL.Control.SelectFeature(GIPOD.layer);
+		Waze.map.addControl(selectFeature);
+		GIPOD.layer.events.on({
+			'featureselected': function(e) {
+				log(e);
+				if (e.feature.attributes.type == 'workPoint') {
+					GIPOD.getItem(e.feature.attributes.id, showItem);
+				}
 			}
-			return false;
-		}, true);
+		});
 
 		// Create GIPOD tab
 		tabContent = userInfo.querySelector('.tab-content');
@@ -313,23 +350,29 @@
 		UI.ResultList.show();
 		log('Added GIPOD tab');
 
-		UI.ItemDetail.addEventListener({
-			'eventFired': function(state) {
-				if (state == 'hidden') {
-					GIPOD.layer.removeFeatures(GIPOD.layer.getFeaturesByAttribute('type', 'workArea'));
-				}
+		UI.ItemDetail.addEventListener(function(state) {
+			if (state == 'hidden') {
+				GIPOD.layer.removeFeatures(GIPOD.layer.getFeaturesByAttribute('type', 'workArea'));
 			}
 		});
 	}
 
 	function processGIPODData(data) {
+		// Perform sorting based first on hindrance and then on date
+		data.sort(function(a, b) {
+			if (a.importantHindrance && b.importantHindrance || !a.importantHindrance && !b.importantHindrance) {
+				return Date.parse(a.startDateTime) - Date.parse(b.startDateTime);
+			} else {
+				return !a.importantHindrance;
+			}
+		});
 		// Clear out the previous results or loading text
 		UI.ResultList.clear();
 		// Remove all existing features from the map
 		GIPOD.layer.removeAllFeatures();
 		data.map(addGIPODItem);
 		if (data.length === 0) {
-			UI.ResultList.addResult('No results found', 'Please zoom out or pan to another area');
+			UI.ResultList.setStatus('noResult');
 		}
 		UI.ItemDetail.hide();
 		UI.ResultList.show();
@@ -340,19 +383,20 @@
 
 		// Add as a list item
 		var gipodItem = UI.ResultList.addResult(
-			(index+1) + '. ' + (data.importantHindrance ? '(!) ' : '') + data.description,
-			data.startDateTime + ' - ' + data.endDateTime,
+			data.description,
+			GIPOD.parseDatetime(data.startDateTime) + ' - ' + GIPOD.parseDatetime(data.endDateTime),
 			function() {
 				Waze.map.panTo(lonlat);
 				GIPOD.getItem(this.dataset.id, showItem);
-			});
+			},
+			(data.importantHindrance ? '#ff3333' : '#ff8c00'));
 		gipodItem.dataset.id = data.gipodId;
 
 		// Add as point on the map
 		var featurePoint = new OpenLayers.Feature.Vector(
 			new OL.Geometry.Point(lonlat.lon, lonlat.lat),
 			{ type: 'workPoint', description: data.description, id: data.gipodId },
-			{ pointRadius: 10, fillColor: (data.importantHindrance ? '#ff3333' : '#f66f1e'), strokeColor: '#eee', label: (index+1).toString(), fontColor: '#fff', fontWeight: 'bold' });
+			{ pointRadius: 10, fillColor: (data.importantHindrance ? '#ff3333' : '#ff8c00'), strokeColor: '#eee', label: (index+1).toString(), fontColor: '#fff', fontWeight: 'bold' });
 		GIPOD.layer.addFeatures([featurePoint]);
 	}
 
@@ -371,9 +415,10 @@
 					areaCoords.push(new OL.Geometry.Point(coord.x, coord.y).transform(GIPOD.projection, Waze.map.getProjectionObject()));
 				});
 				var poly = new OL.Geometry.Polygon([ new OL.Geometry.LinearRing(areaCoords) ]);
-				vectors.push(new OL.Feature.Vector(poly, { type: 'workArea' }, { fillOpacity: 0.6, fillColor: '#f66f1e', strokeColor: '#eeeeee'}));
+				vectors.push(new OL.Feature.Vector(poly, { type: 'workArea' }, { fillOpacity: 0.6, fillColor: '#ff8c00', strokeColor: '#eeeeee'}));
 			});
 			GIPOD.layer.addFeatures(vectors);
+			Waze.map.zoomToExtent(vectors[0].geometry.getBounds());
 		}
 	}
 
