@@ -303,7 +303,7 @@
 		};
 
 		// Initialise layer and event handlers
-		GIPOD.layer = new OL.Layer.Vector(I18n.t('road_works.layer_name'), {
+		GIPOD.layer = new OL.Layer.Vector(I18n.t('road_events.layer_label'), {
 			styleMap: new OL.StyleMap({
 				'default': new OL.Style(OL.Util.applyDefaults({
 					pointRadius: 10,
