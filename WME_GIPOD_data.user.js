@@ -1,436 +1,622 @@
 ﻿// ==UserScript==
-// @name        WME GIPOD data
+// @name        WME Road Events Data
 // @namespace   http://www.tomputtemans.com/
-// @description Retrieve and show all work assignments and manifestations published by municipalities.
+// @description Retrieve and show road events
 // @include     https://www.waze.com/*/editor/*
 // @include     https://www.waze.com/editor/*
 // @include     https://editor-beta.waze.com/*
-// @version     0.7
+// @version     1.0
 // @grant       none
 // ==/UserScript==
 
 (function() {
-	var UI, GIPOD;
+	var UI = {},
+		RoadEvents;
 
-	function gipodInit() {
-		var userInfo, navTabs, tabContent, gipodTab, gipodContent, searchButton;
+	function roadEventsInit() {
+		var userInfo = document.getElementById('user-info'),
+			navTabs = userInfo.querySelector('.nav-tabs');
 
 		// Check initialisation
 		if (typeof Waze == 'undefined' || typeof I18n == 'undefined') {
-			setTimeout(gipodInit, 660);
+			setTimeout(roadEventsInit, 660);
 			log('Waze object unavailable, map still loading');
 			return;
 		}
-		userInfo = document.getElementById('user-info');
 		if (userInfo === null) {
-			setTimeout(gipodInit, 660);
+			setTimeout(roadEventsInit, 660);
 			log('User info unavailable, map still loading');
 			return;
 		}
-		navTabs = userInfo.querySelector('.nav-tabs');
 		if (navTabs === null) {
-			setTimeout(gipodInit, 660);
+			setTimeout(roadEventsInit, 660);
 			log('Nav tabs unavailable, map still loading');
 			return;
 		}
-		log('GIPOD initated');
+		log('Road Events initated');
 
 		// Set translation strings
-		addTranslations()
+		addTranslations();
 
-		UI = {
-			ResultList: function() {
-				// List to contain results encapsulated in this object
-				var ul = document.createElement('ul');
-				ul.className = 'result-list';
-				ul.style.paddingLeft = '10px';
+		UI.Tab = function() {
+			log("Configuring UI");
+			var tabContent = userInfo.querySelector('.tab-content'),
+					roadEventsTab = document.createElement('li'),
+					roadEventsContent = document.createElement('div');
 
-				return {
-					addResult: function(title, additionalInfo, eventHandler, barColor) {
-						ul.style.listStyleType = 'numeric';
-						ul.style.marginTop = '5px';
+			roadEventsTab.innerHTML = '<a href="#sidepanel-roadEvents" data-toggle="tab">' + I18n.t('road_events.layer_label') + '</a>';
+			roadEventsContent.id = 'sidepanel-roadEvents';
+			roadEventsContent.className = 'tab-pane';
+			navTabs.appendChild(roadEventsTab);
+			tabContent.appendChild(roadEventsContent);
+
+			return {
+				add: function(element) {
+					roadEventsContent.appendChild(element);
+					log(element);
+					log(roadEventsContent);
+				}
+			};
+		}();
+		UI.ResultList = function() {
+			function parseDate(date) {
+				return date.getFullYear() + '/' + zeroPad(date.getMonth()+1) + '/' + zeroPad(date.getDate()) + ' ' + zeroPad(date.getHours()) + ':' + zeroPad(date.getMinutes());
+			}
+			function createButton(text, handler) {
+				var button = document.createElement('button');
+				button.type = 'button';
+				button.className = 'btn btn-default';
+				button.innerHTML = text;
+				button.addEventListener('click', handler, true);
+				return button;
+			}
+
+			// Add search button
+			var searchButton = createButton(I18n.t('road_events.search.button_label'), function() {
+				RoadEvents.update();
+				return false;
+			});
+			UI.Tab.add(searchButton);
+
+			// List to contain results encapsulated in this object
+			var ul = document.createElement('ul');
+			ul.className = 'result-list';
+			ul.style.marginTop = '5px';
+			ul.style.paddingLeft = '10px';
+			UI.Tab.add(ul);
+
+			return {
+				// Populate the result list with an array of events
+				fill: function(events) {
+					this.clear();
+					ul.style.listStyleType = 'decimal';
+					events.forEach(function(event) {
 						var li = document.createElement('li');
-						li.className = (eventHandler ? 'result session-available' : 'result');
+						li.className = 'result session-available';
 						li.style.fontWeight = 'bold';
 						li.style.paddingLeft = '0';
 						var head = document.createElement('p');
 						head.className = 'title';
-						if (barColor) {
+						if (event.color) {
 							head.style.paddingLeft = '5px';
-							head.style.borderLeft = '3px solid ' + barColor;
+							head.style.borderLeft = '3px solid ' + event.color;
 						}
-						head.appendChild(document.createTextNode(title));
+						head.innerHTML = event.description;
 						li.appendChild(head);
 						var subhead = document.createElement('p');
 						subhead.className = 'additional-info';
 						subhead.style.fontWeight = 'normal';
-						if (barColor) {
+						if (event.color) {
 							subhead.style.paddingLeft = '8px';
 						}
-						subhead.appendChild(document.createTextNode(additionalInfo));
+						subhead.innerHTML = parseDate(event.start) + ' - ' + parseDate(event.end);
 						li.appendChild(subhead);
-						if (typeof eventHandler === 'function') {
-							li.addEventListener('click', eventHandler);
-						}
-						ul.appendChild(li);
-						return li;
-					},
-					clear: function() {
-						while (ul.firstChild) {
-							ul.removeChild(ul.firstChild);
-						}
-					},
-					setStatus: function(status) {
-						this.clear();
-						if (status === 'loading') {
-							this.addResult(I18n.t('road_events.search.loading_header'), I18n.t('road_events.search.loading_subheader', {count: 1}));
-						} else if (status === 'noResult') {
-							this.addResult(I18n.t('road_events.results.empty_header'), I18n.t('road_events.results.empty_subheader'));
-						} else {
-							log('Invalid status received: ' + status);
-						}
-						ul.style.listStyleType = 'none';
-					},
-					show: function() {
-						if (ul.parentNode === null) {
-							document.getElementById('sidepanel-gipod').appendChild(ul);
-						}
-						ul.style.display = 'block';
-					},
-					hide: function() {
-						ul.style.display = 'none';
-					}
-				};
-			}(),
-			ItemDetail: function() {
-				var pane = document.createElement('div');
-				pane.style.display = 'none';
-				pane.style.marginTop = '8px';
-				var title = document.createElement('h4');
-				var details = document.createElement('div');
-				var backButton = document.createElement('button');
-				var listeners = [];
-				backButton.type = 'button';
-				backButton.className = 'btn btn-default';
-				backButton.innerHTML = I18n.t('road_events.detail.back_to_list');
-				backButton.addEventListener('click', function() {
-					this.parentNode.style.display = 'none';
-					document.querySelector('#sidepanel-gipod .result-list').style.display = 'block';
-					listeners.map(function(listener) {
-						listener('hidden');
-					});
-				});
-				pane.appendChild(title);
-				pane.appendChild(details);
-				pane.appendChild(backButton);
-
-				return {
-					fill: function(data) {
-						var formatDataField = function(field) {
-							if (typeof field == 'string') {
-								if (/^https?:\/\//.test(field)) { // Website
-									var a = document.createElement('a');
-									a.target = '_blank';
-									a.href = encodeURI(field);
-									a.appendChild(document.createTextNode(field));
-									return a;
-								} else if (/^[^ ]+@[^ ]+\.[a-zA-Z0-9]+$/.test(field)) { // E-mail
-									var a = document.createElement('a');
-									a.target = '_blank';
-									a.href = encodeURI('mailto:' + field);
-									a.appendChild(document.createTextNode(field));
-									return a;
-								} else {
-									return document.createTextNode(field);
-								}
-							} else {
-								return document.createTextNode(JSON.stringify(field, null, '\t'));
-							}
-						};
-
-						while (details.firstChild) {
-							details.removeChild(details.firstChild);
-						}
-						data.map(function(group) {
-							var sectionHeader = document.createElement('legend');
-							sectionHeader.appendChild(document.createTextNode(group.name));
-							var sectionData = document.createElement('fieldset');
-							sectionData.appendChild(sectionHeader);
-							var p = document.createElement('p');
-							group.items.map(function(item) {
-								if (item[1] !== null && typeof item[1] !== 'undefined' && item[1] !== '' && item[1] !== ' ') {
-									var strong = document.createElement('strong');
-									strong.appendChild(document.createTextNode(item[0] + ": "));
-									p.appendChild(strong);
-									p.appendChild(formatDataField(item[1]));
-									p.appendChild(document.createElement('br'));
-								}
-							});
-							sectionData.appendChild(p);
-							details.appendChild(sectionData);
+						li.addEventListener('click', function() {
+							RoadEvents.show(event);
 						});
-					},
-					show: function() {
-						if (pane.parentNode === null) {
-							document.getElementById('sidepanel-gipod').appendChild(pane);
+						ul.appendChild(li);
+					});
+					UI.ItemDetail.hide();
+					UI.ResultList.show();
+				},
+				clear: function() {
+					while (ul.firstChild) {
+						ul.removeChild(ul.firstChild);
+					}
+				},
+				setStatus: function(status) {
+					var title, info;
+
+					this.clear();
+					ul.style.listStyleType = 'none';
+					if (status == 'loading') {
+						title = I18n.t('road_events.search.loading_header');
+						info = I18n.t('road_events.search.loading_subheader', {count: 1});
+					} else if (status == 'noResult') {
+						title = I18n.t('road_events.results.empty_header');
+						info = I18n.t('road_events.results.empty_subheader');
+					} else {
+						log('Invalid status received: ' + status);
+						throw new Error('Invalid status received: ' + status);
+					}
+					var li = document.createElement('li');
+					li.className = 'result';
+					li.style.fontWeight = 'bold';
+					li.style.paddingLeft = '0';
+					var head = document.createElement('p');
+					head.className = 'title';
+					head.appendChild(document.createTextNode(title));
+					li.appendChild(head);
+					var subhead = document.createElement('p');
+					subhead.className = 'additional-info';
+					subhead.style.fontWeight = 'normal';
+					subhead.appendChild(document.createTextNode(info));
+					li.appendChild(subhead);
+					ul.appendChild(li);
+					UI.ItemDetail.hide();
+					UI.ResultList.show();
+				},
+				show: function() {
+					ul.style.display = 'block';
+				},
+				hide: function() {
+					ul.style.display = 'none';
+				}
+			};
+		}();
+		UI.ItemDetail = function() {
+			var pane = document.createElement('div');
+			pane.style.display = 'none';
+			pane.style.marginTop = '8px';
+			var title = document.createElement('h4');
+			var details = document.createElement('div');
+			var backButton = document.createElement('button');
+			var listeners = [];
+			backButton.type = 'button';
+			backButton.className = 'btn btn-default';
+			backButton.innerHTML = I18n.t('road_events.detail.back_to_list');
+			backButton.addEventListener('click', function() {
+				activeEvent = null;
+				UI.Layer.removeType("area");
+				UI.ItemDetail.hide();
+				UI.ResultList.show();
+			});
+			pane.appendChild(title);
+			pane.appendChild(details);
+			pane.appendChild(backButton);
+			UI.Tab.add(pane);
+
+			return {
+				set: function(event) {
+					this.clear();
+					log(event);
+					for (var group in event.detail) {
+						var sectionHeader = document.createElement('legend');
+						sectionHeader.appendChild(document.createTextNode(I18n.t('road_events.detail.' + group)));
+						var sectionData = document.createElement('fieldset');
+						sectionData.appendChild(sectionHeader);
+						var p = document.createElement('p');
+						var pContent = '';
+						for (var name in event.detail[group]) {
+							var item = event.detail[group][name];
+							if (item !== null && item.length !== 0) {
+								if (Array.isArray(item)) {
+									pContent += '<strong>' + I18n.t('road_events.detail.' + name, {count: item.length}) + ":</strong> ";
+									pContent += item.join(', ');
+								} else {
+									pContent += '<strong>' + I18n.t('road_events.detail.' + name) + ":</strong> ";
+									if (typeof item === 'boolean') {
+										pContent += I18n.t('road_events.detail.' + (item ? 'yes' : 'no'));
+									} else {
+										pContent += item;
+									}
+								}
+								pContent += '<br/>';
+							}
 						}
-						pane.style.display = 'block';
-					},
-					hide: function() {
-						if (pane.style.display == 'block') {
-							listeners.map(function(listener) {
-								listener('hidden');
+						p.innerHTML = pContent;
+						sectionData.appendChild(p);
+						details.appendChild(sectionData);
+					}
+					UI.ResultList.hide();
+					UI.ItemDetail.show();
+				},
+				clear: function() {
+					while (details.firstChild) {
+						details.removeChild(details.firstChild);
+					}
+				},
+				show: function() {
+					pane.style.display = 'block';
+				},
+				hide: function() {
+					pane.style.display = 'none';
+				}
+			};
+		}();
+		UI.Layer = function() {
+			var layer = new OL.Layer.Vector(I18n.t('road_events.layer_label'), {
+				styleMap: new OL.StyleMap({
+					'default': new OL.Style(OL.Util.applyDefaults({
+						pointRadius: 10,
+						strokeColor: '#eee',
+						fontColor: '#fff',
+						fontWeight: 'bold'
+					}, OL.Feature.Vector.style["default"])),
+					'select': new OL.Style(OL.Util.applyDefaults({
+						pointRadius: 10,
+						strokeColor: '#aaa',
+						fontColor: '#fff',
+						fontWeight: 'bold'
+					}, OL.Feature.Vector.style["select"]))
+				})
+			});
+			Waze.map.addLayer(layer);
+			// TODO: selecting features doesn't work yet, missing something apparently?
+			var selectFeature = new OL.Control.SelectFeature(layer);
+			Waze.map.addControl(selectFeature);
+			layer.events.on({
+				'featureselected': function(e) {
+					log(e);
+				}
+			});
+
+			function makeVector(event) {
+				return new OL.Feature.Vector(
+					event.coordinate,
+					{ type: 'marker', description: event.description, id: event.id },
+					{ pointRadius: 10, fillColor: event.color, strokeColor: '#eee', label: event.index.toString(), fontColor: '#fff', fontWeight: 'bold' }
+				);
+			}
+
+			return {
+				// Add a vector
+				add: function(vector) {
+					layer.addFeatures([ vector ]);
+				},
+				// Add a set of road events to the map at once
+				fill: function(events) {
+					this.clear();
+					var vectors = events.map(makeVector);
+					layer.addFeatures(vectors);
+				},
+				// Remove all features for which a certain attribute is set
+				removeType: function(type) {
+					layer.removeFeatures(layer.getFeaturesByAttribute('type', type));
+				},
+				// Clear the layer by removing all features
+				clear: function() {
+					layer.removeAllFeatures();
+				}
+			};
+		}();
+
+		RoadEvents = function() {
+			var activeEvent = null,
+				sources = {};
+		
+			// Hook into dialog-container for closure addition prefilling
+			var observer = new MutationObserver(function(mutations) {
+				if (activeEvent !== null) {
+					mutations.forEach(function(mutation) {
+						for (var i = 0; i < mutation.addedNodes.length; i++) {
+							if (mutation.addedNodes[i].className == 'edit-closure modal-dialog') {
+								console.log(activeEvent);
+								mutation.addedNodes[i].querySelector("input.form-control[name='closure_reason']").value = activeEvent.detail.identification.description;
+								if (activeEvent.start) {
+									mutation.addedNodes[i].querySelector("input[name='closure_hasStartDate']").checked = true;
+									mutation.addedNodes[i].querySelector("input.form-control[name='closure_startDate']").value = activeEvent.start.getFullYear() + '-' + zeroPad(activeEvent.start.getMonth()+1) + '-' + zeroPad(activeEvent.start.getDate());
+									mutation.addedNodes[i].querySelector("input.form-control[name='closure_startTime']").value = zeroPad(activeEvent.start.getHours()) + ':' + zeroPad(activeEvent.start.getMinutes());
+								}
+								if (activeEvent.end) {
+									mutation.addedNodes[i].querySelector("input.form-control[name='closure_endDate']").value = activeEvent.end.getFullYear() + '-' + zeroPad(activeEvent.end.getMonth()+1) + '-' + zeroPad(activeEvent.end.getDate());
+									mutation.addedNodes[i].querySelector("input.form-control[name='closure_endTime']").value = zeroPad(activeEvent.end.getHours()) + ':' + zeroPad(activeEvent.end.getMinutes());
+								}
+							}
+						}
+					});
+				}
+			});
+			observer.observe(document.getElementById('dialog-region'), { childList: true });
+
+			return {
+				// Retrieve one specific event from a source
+				show: function(event) {
+					sources[event.source].get(event.id, function(detail) {
+						UI.ItemDetail.set(detail);
+						activeEvent = detail;
+						if (detail.vector) {
+							UI.Layer.add(detail.vector);
+							Waze.map.zoomToExtent(detail.vector.geometry.getBounds());
+						}
+					});
+				},
+				// Update all sources for the current location
+				update: function() {
+					var promises = [];
+					UI.ResultList.setStatus('loading');
+					activeEvent = null;
+					for (var source in sources) {
+						promises.push(sources[source].update());
+					}
+					Promise.all(promises).then(function(results) {
+						var roadEvents = results.reduce(function(prev, curr) {
+							return prev.concat(curr);
+						}).sort(function(a, b) {
+							if (a.hindrance == b.hindrance) {
+								return a.start.getTime() - b.start.getTime();
+							} else {
+								return (a.hindrance ? -1 : 1);
+							}
+						}).map(function(roadEvent, index) {
+							roadEvent.index = index + 1;
+							return roadEvent;
+						});
+						if (roadEvents.length > 0) {
+							UI.ResultList.fill(roadEvents);
+							UI.Layer.fill(roadEvents);
+						} else {
+							UI.ResultList.setStatus('noResult');
+						}
+					});
+				},
+				// Add a new source of road events
+				addSource: function(source) {
+					sources[source.id] = source;
+				}
+			};
+		}();
+
+		// Data source: GIPOD Work Assignments (Flanders, Belgium)
+		RoadEvents.addSource(function() {
+			// Proxy necessary as this API is not available via a secure connection
+			var url = 'https://tomputtemans.com/waze-scripts/road-events.php?source=gipod-workassignment',
+				projection = new OL.Projection("EPSG:4326"),
+				cache = []; // cached event details;
+
+			// Input: 2014-12-22T00:00:00.000 - Output: 2014-12-22 00:00
+			function parseDateTime(datetime) {
+				return datetime.replace(/(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})(:\d{2})(\.\d+)?/, "$1/$2/$3 $4");
+			}
+
+			return {
+				id: 'gipod_work',
+				update: function() {
+					return new Promise(function(resolve, reject) {
+						// Obtain the bounds and transform them to the projection used by GIPOD
+						var bounds = Waze.map.calculateBounds().transform(Waze.map.getProjectionObject(), projection);
+						// bounding box: left bottom coordinate | right top coordinate
+						var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
+						$.ajax({
+							url: url + '&bbox=' + bbox
+						}).done(function(response) {
+							var rawData = JSON.parse(response);
+							var roadEvents = rawData.map(function(data) {
+								return {
+									id: escapeString(data.gipodId),
+									source: 'gipod_work',
+									description: escapeString(data.description),
+									start: new Date(data.startDateTime),
+									end: new Date(data.endDateTime),
+									hindrance: data.importantHindrance,
+									color: (data.importantHindrance ? '#ff3333' : '#ff8c00'),
+									coordinate: new OL.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, Waze.map.getProjectionObject())
+								};
 							});
-						}
-						pane.style.display = 'none';
-					},
-					addEventListener: function(listener) {
-						listeners.push(listener);
-					},
-				};
-			}()
-		};
-
-		GIPOD = {
-			url: 'https://tomputtemans.com/waze-scripts/gipod-data.php',
-			projection: new OL.Projection("EPSG:4326"),
-			parseDatetime: function(datetime, longFormat) {
-				// Input: 2014-12-22T00:00:00 - Output: 2014-12-22 00:00
-				return datetime.replace(/(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(:\d{2})(\.\d+)?/, (longFormat ? "$1 $2$3$4" : "$1 $2"));
-			},
-			update: function(callback) {
-				// Obtain the bounds and transform them to the projection used by GIPOD
-				var bounds = Waze.map.calculateBounds().transform(Waze.map.getProjectionObject(), GIPOD.projection);
-				// bounding box: left bottom coordinate | right top coordinate
-				var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
-
-				UI.ResultList.setStatus('loading');
-				$.ajax({
-					url: GIPOD.url + '?bbox=' + bbox
-				}).done(function(response) {
-					callback(JSON.parse(response));
-				});
-			},
-			getItem: function() {
-				var cache = [];
-
-				return function(gipodId, callback) {
+							resolve(roadEvents);
+						}).fail(function(xhr, text) {
+							resolve([]);
+						});
+					});
+				},
+				get: function(gipodId, callback) {
 					if (cache[gipodId]) {
 						callback(cache[gipodId]);
 					} else {
 						$.ajax({
-							url: GIPOD.url + '?id=' + gipodId
+							url: url + '&id=' + gipodId
 						}).done(function(response) {
 							var data = JSON.parse(response);
-							cache[data.gipodId] = data;
-							callback(data);
+							if (data.hindrance === null) {
+								data.hindrance = {
+									description: I18n.t('road_events.detail.no_hindrance'),
+									locations: [],
+									effects: []
+								};
+							}
+							if (data.contactDetails === null) {
+								data.contactDetails = {
+									organisation: I18n.t('road_events.detail.no_organisation')
+								};
+							}
+							var vector = null;
+							if (data.location.geometry !== null) {
+								var poly = null;
+								if (data.location.geometry.type == 'Polygon') {
+									var ring = new OL.Geometry.LinearRing(data.location.geometry.coordinates[0].map(function(coord) {
+										return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, Waze.map.getProjectionObject());
+									}));
+									poly = new OL.Geometry.Polygon([ ring ]);
+								} else if (data.location.geometry.type == 'MultiPolygon') {
+									rings = data.location.geometry.coordinates[0].map(function(coords) {
+										return new OL.Geometry.LinearRing(coords.map(function(coord) {
+											return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, Waze.map.getProjectionObject());
+										}));
+									});
+									poly = new OL.Geometry.Polygon(rings);
+								}
+								if (poly !== null) {
+									vector = new OL.Feature.Vector(poly, { type: 'area' }, { fillOpacity: 0.6, fillColor: '#ff8c00', strokeColor: '#eeeeee'});
+								}
+							}
+							var roadEvent = {
+								detail: {
+									identification: {
+										description: escapeString(data.description),
+										periods: [ parseDateTime(escapeString(data.startDateTime)) + ' - ' + parseDateTime(escapeString(data.endDateTime)) + (data.type ? ' (' + data.type + ')' : '') ],
+										cities: data.location.cities.map(escapeString),
+										comment: escapeString(data.comment),
+										last_update: escapeString(parseDateTime(data.latestUpdate)),
+										id: escapeString(data.gipodId),
+										source: 'GIPOD Work Assignments'
+									},
+									hindrance: {
+										important_hindrance: data.hindrance.important === true,
+										description: escapeString(data.hindrance.description),
+										direction: escapeString(data.direction),
+										locations: data.hindrance.locations.map(escapeString),
+										effects: data.hindrance.effects.map(escapeString)
+									},
+									contact: {
+										owner: escapeString(data.owner),
+										contractor: escapeString(data.contactor),
+										organisation: escapeString(data.contactDetails.organisation),
+										email: formatDataField(escapeString(data.contactDetails.email)),
+										phone: escapeString(data.contactDetails.phoneNumber1)
+									}
+								},
+								start: new Date(data.startDateTime),
+								end: new Date(data.endDateTime),
+								id: escapeString(data.gipodId),
+								vector: vector,
+								rawData: data
+							};
+							cache[roadEvent.detail.identification.id] = roadEvent;
+							callback(roadEvent);
 						});
 					}
-				};
-			}(),
-			// Transform the raw data to an object that can be used by UI.ItemDetail.fill()
-			transformData: function(data) {
-				if (data.hindrance === null) {
-					data.hindrance = {
-						description: I18n.t('road_events.detail.no_hindrance'),
-						locations: [],
-						effects: []
-					};
 				}
-				if (data.contactDetails === null) {
-					data.contactDetails = {
-						organisation: I18n.t('road_events.detail.no_organisation')
-					};
-				}
-				return [
-					{
-						name: I18n.t('road_events.detail.identification'),
-						items: [
-							[I18n.t('road_events.detail.description'), data.description],
-							[I18n.t('road_events.detail.period'), this.parseDatetime(data.startDateTime) + ' - ' + this.parseDatetime(data.endDateTime) + (data.type ? ' (' + data.type + ')' : '')],
-							[I18n.t('road_events.detail.cities', {count: data.location.cities.length}), data.location.cities.join(', ')],
-							[I18n.t('road_events.detail.state'), data.state],
-							[I18n.t('road_events.detail.last_update'), this.parseDatetime(data.latestUpdate, true)],
-							['GIPOD ID', data.gipodId]
-						]
-					},
-					{
-						name: I18n.t('road_events.detail.hindrance'),
-						items: [
-							[I18n.t('road_events.detail.important_hindrance'), (data.hindrance.important ? I18n.t('road_events.detail.yes') : I18n.t('road_events.detail.no'))],
-							[I18n.t('road_events.detail.direction'), data.hindrance.direction],
-							[I18n.t('road_events.detail.description'), data.hindrance.description],
-							[I18n.t('road_events.detail.locations', {count: data.hindrance.locations.length}), data.hindrance.locations.join(', ')],
-							[I18n.t('road_events.detail.effects', {count: data.hindrance.effects.length}), data.hindrance.effects.join(' • ')]
-						]
-					},
-					{
-						name: I18n.t('road_events.detail.contact'),
-						items: [
-							[I18n.t('road_events.detail.URL'), data.url],
-							[I18n.t('road_events.detail.owner'), data.owner],
-							[I18n.t('road_events.detail.contractor'), data.contractor],
-							[I18n.t('road_events.detail.organisation'), data.contactDetails.organisation],
-							[I18n.t('road_events.detail.email'), data.contactDetails.email],
-							[I18n.t('road_events.detail.phone'), data.contactDetails.phoneNumber1],
-						]
-					}
-				];
-			},
-			hasArea: function(data) {
-				return (data.location.geometry.type == 'Polygon' && data.location.geometry.coordinates && data.location.geometry.coordinates[0]) ||
-						(data.location.geometry.type == 'MultiPolygon' && data.location.geometry.coordinates && data.location.geometry.coordinates[0] && data.location.geometry.coordinates[0][0]);
-			},
-			getAreaCoords: function(data) {
-				var rings = [];
-				if (data.location.geometry.type == 'Polygon') {
-					var ring = [];
-					data.location.geometry.coordinates[0].map(function(coord) {
-						ring.push({x: coord[0], y: coord[1]});
-					});
-					rings.push(ring);
-				} else if (data.location.geometry.type == 'MultiPolygon') {
-					data.location.geometry.coordinates[0].map(function(coords) {
-						var ring = [];
-						coords.map(function(coord) {
-							ring.push({x: coord[0], y: coord[1]});
+			};
+		}());
+
+		// Data source: GIPOD Manifestations (Flanders, Belgium)
+		RoadEvents.addSource(function() {
+			// Proxy necessary as this API is not available via a secure connection
+			var url = 'https://tomputtemans.com/waze-scripts/road-events.php?source=gipod-manifestation',
+				projection = new OL.Projection("EPSG:4326"),
+				cache = []; // cached event details
+
+			// Input: 2014-12-22T00:00:00.000 - Output: 2014-12-22 00:00
+			function parseDateTime(datetime) {
+				return datetime.replace(/(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(:\d{2})(\.\d+)?/, "$1 $2");
+			}
+
+			return {
+				id: 'gipod_manifestation',
+				update: function() {
+					return new Promise(function(resolve, reject) {
+						// Obtain the bounds and transform them to the projection used by GIPOD
+						var bounds = Waze.map.calculateBounds().transform(Waze.map.getProjectionObject(), projection);
+						// bounding box: left bottom coordinate | right top coordinate
+						var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
+						$.ajax({
+							url: url + '&bbox=' + bbox
+						}).done(function(response) {
+							var rawData = JSON.parse(response);
+							var roadEvents = rawData.map(function(data) {
+								return {
+									id: escapeString(data.gipodId),
+									source: 'gipod_manifestation',
+									description: escapeString(data.description),
+									start: new Date(data.startDateTime),
+									end: new Date(data.endDateTime),
+									hindrance: data.importantHindrance,
+									color: (data.importantHindrance ? '#3333ff' : '#008cff'),
+									coordinate: new OL.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, Waze.map.getProjectionObject())
+								};
+							});
+							resolve(roadEvents);
+						}).fail(function(xhr, text) {
+							resolve([]);
 						});
-						rings.push(ring);
 					});
+				},
+				get: function(gipodId, callback) {
+					if (cache[gipodId]) {
+						callback(cache[gipodId]);
+					} else {
+						$.ajax({
+							url: url + '&id=' + gipodId
+						}).done(function(response) {
+							var data = JSON.parse(response);
+							if (data.hindrance === null) {
+								data.hindrance = {
+									description: I18n.t('road_events.detail.no_hindrance'),
+									locations: [],
+									effects: []
+								};
+							}
+							if (data.contactDetails === null) {
+								data.contactDetails = {
+									organisation: I18n.t('road_events.detail.no_organisation')
+								};
+							}
+							var vector = null;
+							if (data.location.geometry !== null) {
+								var poly = null;
+								if (data.location.geometry.type == 'Polygon') {
+									var ring = new OL.Geometry.LinearRing(data.location.geometry.coordinates[0].map(function(coord) {
+										return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, Waze.map.getProjectionObject());
+									}));
+									poly = new OL.Geometry.Polygon([ ring ]);
+								} else if (data.location.geometry.type == 'MultiPolygon') {
+									rings = data.location.geometry.coordinates[0].map(function(coords) {
+										return new OL.Geometry.LinearRing(coords.map(function(coord) {
+											return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, Waze.map.getProjectionObject());
+										}));
+									});
+									poly = new OL.Geometry.Polygon(rings);
+								}
+								if (poly != null) {
+									vector = new OL.Feature.Vector(poly, { type: 'area' }, { fillOpacity: 0.6, fillColor: '#ff8c00', strokeColor: '#eeeeee'});
+								}
+							}
+							var roadEvent = {
+								detail: {
+									identification: {
+										description: escapeString(data.description),
+										periods: data.periods.map(function(period) {return parseDateTime(escapeString(period.startDateTime)) + ' - ' + parseDateTime(escapeString(period.endDateTime));}),
+										cities: data.location.cities.map(escapeString),
+										event_type: escapeString(data.eventType),
+										comment: escapeString(data.comment),
+										id: escapeString(data.gipodId),
+										source: 'GIPOD Manifestations'
+									},
+									hindrance: {
+										important_hindrance: data.hindrance.important == true,
+										description: escapeString(data.hindrance.description),
+										direction: escapeString(data.direction),
+										recurrence: escapeString(data.recurrencePattern),
+										locations: escapeString(data.hindrance.locations),
+										effects: escapeString(data.hindrance.effects)
+									},
+									contact: {
+										owner: escapeString(data.owner),
+										initiator: escapeString((data.initiator ? data.initiator.organisation : null)),
+										organisation: escapeString(data.contactDetails.organisation),
+										email: formatDataField(escapeString(data.contactDetails.email)),
+										phone: escapeString(data.contactDetails.phoneNumber1)
+									}
+								},
+								start: new Date(data.periods ? data.periods[0].startDateTime : null),
+								end: new Date(data.periods ? data.periods[0].endDateTime : null),
+								id: escapeString(data.gipodId),
+								vector: vector,
+								rawData: data
+							};
+							cache[roadEvent.detail.identification.id] = roadEvent;
+							callback(roadEvent);
+						});
+					}
 				}
-				return rings;
-			}
-		};
-
-		// Initialise layer and event handlers
-		GIPOD.layer = new OL.Layer.Vector(I18n.t('road_events.layer_label'), {
-			styleMap: new OL.StyleMap({
-				'default': new OL.Style(OL.Util.applyDefaults({
-					pointRadius: 10,
-					strokeColor: '#eee',
-					fontColor: '#fff',
-					fontWeight: 'bold'
-				}, OL.Feature.Vector.style["default"])),
-				'select': new OL.Style(OL.Util.applyDefaults({
-					pointRadius: 10,
-					strokeColor: '#aaa',
-					fontColor: '#fff',
-					fontWeight: 'bold'
-				}, OL.Feature.Vector.style["select"]))
-			})
-		});
-		Waze.map.addLayer(GIPOD.layer);
-		// TODO: doesn't work yet, missing something apparently
-		var selectFeature = new OL.Control.SelectFeature(GIPOD.layer);
-		Waze.map.addControl(selectFeature);
-		GIPOD.layer.events.on({
-			'featureselected': function(e) {
-				log(e);
-				if (e.feature.attributes.type == 'workPoint') {
-					GIPOD.getItem(e.feature.attributes.id, showItem);
-				}
-			}
-		});
-
-		// Create GIPOD tab
-		tabContent = userInfo.querySelector('.tab-content');
-		gipodTab = document.createElement('li');
-		gipodContent = document.createElement('div');
-		searchButton = document.createElement('button');
-
-		gipodTab.innerHTML = '<a href="#sidepanel-gipod" data-toggle="tab">GIPOD</a>';
-		gipodContent.id = 'sidepanel-gipod';
-		gipodContent.className = 'tab-pane';
-		searchButton.type = 'button';
-		searchButton.className = 'btn btn-default';
-		searchButton.innerHTML = I18n.t('road_events.search.button_label');
-		searchButton.addEventListener('click', function() {
-			GIPOD.update(processGIPODData);
-			return false;
-		}, true);
-		gipodContent.appendChild(searchButton);
-
-		navTabs.appendChild(gipodTab);
-		tabContent.appendChild(gipodContent);
-		UI.ResultList.show();
-		log('Added GIPOD tab');
-
-		UI.ItemDetail.addEventListener(function(state) {
-			if (state == 'hidden') {
-				GIPOD.layer.removeFeatures(GIPOD.layer.getFeaturesByAttribute('type', 'workArea'));
-			}
-		});
-	}
-
-	function processGIPODData(data) {
-		// Perform sorting based first on hindrance and then on date
-		data.sort(function(a, b) {
-			if (a.importantHindrance && b.importantHindrance || !a.importantHindrance && !b.importantHindrance) {
-				return Date.parse(a.startDateTime) - Date.parse(b.startDateTime);
-			} else {
-				return !a.importantHindrance;
-			}
-		});
-		// Clear out the previous results or loading text
-		UI.ResultList.clear();
-		// Remove all existing features from the map
-		GIPOD.layer.removeAllFeatures();
-		data.map(addGIPODItem);
-		if (data.length === 0) {
-			UI.ResultList.setStatus('noResult');
-		}
-		UI.ItemDetail.hide();
-		UI.ResultList.show();
-	}
-
-	function addGIPODItem(data, index) {
-		var lonlat = new OL.LonLat(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(GIPOD.projection, Waze.map.getProjectionObject());
-
-		// Add as a list item
-		var gipodItem = UI.ResultList.addResult(
-			data.description,
-			GIPOD.parseDatetime(data.startDateTime) + ' - ' + GIPOD.parseDatetime(data.endDateTime),
-			function() {
-				Waze.map.panTo(lonlat);
-				GIPOD.getItem(this.dataset.id, showItem);
-			},
-			(data.importantHindrance ? '#ff3333' : '#ff8c00'));
-		gipodItem.dataset.id = data.gipodId;
-
-		// Add as point on the map
-		var featurePoint = new OpenLayers.Feature.Vector(
-			new OL.Geometry.Point(lonlat.lon, lonlat.lat),
-			{ type: 'workPoint', description: data.description, id: data.gipodId },
-			{ pointRadius: 10, fillColor: (data.importantHindrance ? '#ff3333' : '#ff8c00'), strokeColor: '#eee', label: (index+1).toString(), fontColor: '#fff', fontWeight: 'bold' });
-		GIPOD.layer.addFeatures([featurePoint]);
-	}
-
-	function showItem(data) {
-		// Show in sidepanel
-		UI.ItemDetail.fill(GIPOD.transformData(data));
-		UI.ResultList.hide();
-		UI.ItemDetail.show();
-
-		// Add geometry on map
-		if (GIPOD.hasArea(data)) {
-			var vectors = [];
-			GIPOD.getAreaCoords(data).map(function(ring) {
-				var areaCoords = [];
-				ring.map(function(coord) {
-					areaCoords.push(new OL.Geometry.Point(coord.x, coord.y).transform(GIPOD.projection, Waze.map.getProjectionObject()));
-				});
-				var poly = new OL.Geometry.Polygon([ new OL.Geometry.LinearRing(areaCoords) ]);
-				vectors.push(new OL.Feature.Vector(poly, { type: 'workArea' }, { fillOpacity: 0.6, fillColor: '#ff8c00', strokeColor: '#eeeeee'}));
-			});
-			GIPOD.layer.addFeatures(vectors);
-			Waze.map.zoomToExtent(vectors[0].geometry.getBounds());
-		}
+			};
+		}());
 	}
 
 	function addTranslations() {
 		var strings = {
 			en: {
-				layer_label: "GIPOD",
+				layer_label: "Road Events",
 				search: {
 					button_label: "Search current location",
 					loading_header: "Loading...",
@@ -451,6 +637,7 @@
 						one: "City",
 						other: "Cities"
 					},
+					comment: "Comment",
 					contact: "Contact",
 					contractor: "Contractor",
 					description: "Description",
@@ -460,28 +647,36 @@
 						other: "Effects"
 					},
 					email: "E-mail",
+					event_type: "Event type",
 					hindrance: "Hindrance",
+					id: "ID",
 					identification: "Identification",
 					important_hindrance: "Important hindrance",
+					initiator: "Initiator",
 					last_update: "Last update",
 					locations: {
 						one: "Location",
 						other: "Locations"
 					},
 					no: "no",
-					no_hindrance: "No hindrance specified",
-					no_organisation: "No organisation specified",
+					no_hindrance: "no hindrance specified",
+					no_organisation: "no organisation specified",
 					organisation: "Organisation",
 					owner: "Owner",
-					period: "Period",
+					periods: {
+						one: "Period",
+						other: "Periods"
+					}, 
 					phone: "Phone number",
+					recurrence: "Recurrences",
+					source: "Source",
 					state: "State",
-					URL: "URL",
+					url: "URL",
 					yes: "yes"
 				}
 			},
 			nl: {
-				layer_label: "GIPOD",
+				layer_label: "Weggebeurtenissen",
 				search: {
 					button_label: "Zoek op huidige locatie",
 					loading_header: "Aan het laden...",
@@ -502,6 +697,7 @@
 						one: "Grondgebied",
 						other: "Grondgebied"
 					},
+					comment: "Commentaar",
 					contact: "Contact",
 					contractor: "Aannemer",
 					description: "Omschrijving",
@@ -511,28 +707,36 @@
 						other: "Impact"
 					},
 					email: "E-mail",
+					event_type: "Evenementtype",
 					hindrance: "Hinder",
+					id: "ID",
 					identification: "Identificatie",
 					important_hindrance: "Ernstige hinder",
+					initiator: "Initiatiefnemer",
 					last_update: "Laatst bijgewerkt",
 					locations: {
 						one: "Plaats",
 						other: "Plaatsen"
 					},
 					no: "nee",
-					no_hindrance: "Geen hinder vermeld",
-					no_organisation: "Geen organisatie vermeld",
+					no_hindrance: "geen hinder vermeld",
+					no_organisation: "geen organisatie vermeld",
 					organisation: "Organisatie",
-					owner: "Eigenaar",
-					period: "Periode",
+					owner: "Beheerder",
+					periods: {
+						one: "Periode",
+						other: "Periodes"
+					}, 
 					phone: "Telefoonnummer",
+					recurrence: "Herhalingspatroon",
+					source: "Bron",
 					state: "Status",
-					URL: "URL",
+					url: "URL",
 					yes: "ja"
 				}
 			},
 			fr: {
-				layer_label: "GIPOD",
+				layer_label: "Evénements routiers",
 				search: {
 					button_label: "Cherchez ici",
 					loading_header: "Chargement en cours...",
@@ -553,6 +757,7 @@
 						one: "Commune",
 						other: "Communes"
 					},
+					comment: "Commentaire",
 					contact: "Contact",
 					contractor: "Contractant",
 					description: "Description",
@@ -562,33 +767,79 @@
 						other: "Impact"
 					},
 					email: "Email",
+					event_type: "Type d'événement",
 					hindrance: "Obstacles",
+					id: "ID",
 					identification: "Identification",
 					important_hindrance: "Obstacle majeur",
+					initiator: "Initiateur",
 					last_update: "Dernier mise à jour",
 					locations: {
 						one: "Endroit",
 						other: "Endroits"
 					},
 					no: "non",
-					no_hindrance: "Aucun obstacle spécifié",
-					no_organisation: "Aucun organisation spécifié",
+					no_hindrance: "aucun obstacle spécifié",
+					no_organisation: "aucun organisation spécifié",
 					organisation: "Organisation",
-					owner: "Propriétaire",
-					period: "Période",
+					owner: "Administrateur",
+					periods: {
+						one: "Période",
+						other: "Périodes"
+					},
 					phone: "Numéro telephone",
+					recurrence: "Récurrences",
+					source: "Source",
 					state: "Etat",
-					URL: "URL",
+					url: "URL",
 					yes: "oui"
 				}
 			}
 		};
 		strings['en_GB'] = strings.en;
-		I18n.availableLocales.map(function(locale) {
+		I18n.availableLocales.forEach(function(locale) {
 			if (I18n.translations[locale]) {
 				I18n.translations[locale]['road_events'] = strings[locale];
 			}
 		});
+	}
+
+	function escapeString(text) {
+		if (Array.isArray(text)) {
+			if (text.length > 0) {
+				return text.map(escapeString);
+			} else {
+				return null;
+			}
+		}
+		if (typeof text === 'undefined' || text === null || text === '' || text === ' ') {
+			return null;
+		}
+		if (typeof text !== 'string') {
+			text = JSON.stringify(text);
+		}
+		return text.replace(/&/g, '&amp;')
+					.replace(/</g, '&lt;')
+					.replace(/>/g, '&gt;')
+					.replace(/"/g, '&quot;')
+					.replace(/'/g, '&#x27;');
+	}
+
+	function zeroPad(number) {
+		return ("0" + number).slice(-2);
+	}
+
+	function formatDataField(field) {
+		if (typeof field === 'string') {
+			if (/^https?:\/\//.test(field)) { // Website
+				return '<a href="' + encodeURI(field) + '" target="_blank">' + field + '</a>';
+			} else if (/^[^ ]+@[^ ]+\.[a-zA-Z0-9]+$/.test(field)) { // E-mail
+				return '<a href="mailto:' + encodeURI(field) + '" target="_blank">' + field + '</a>';
+			} else {
+				return field;
+			}
+		}
+		return null;
 	}
 
 	// TODO: further implement this without using the console
@@ -598,13 +849,13 @@
 
 	function log(message) {
 		if (typeof message === 'string') {
-			console.log('GIPOD: ' + message);
+			console.log('Road Events: ' + message);
 		} else {
-			console.log('GIPOD', message);
+			console.log('Road Events', message);
 		}
 	}
 
 	// attempt to bootstrap after about a second
-	log('GIPOD bootstrap set');
-	setTimeout(gipodInit, 1010);
+	log('Road Events bootstrap set');
+	setTimeout(roadEventsInit, 1010);
 })();
