@@ -5,7 +5,7 @@
 // @include     https://www.waze.com/*/editor/*
 // @include     https://www.waze.com/editor/*
 // @include     https://editor-beta.waze.com/*
-// @version     1.0
+// @version     1.1
 // @grant       none
 // ==/UserScript==
 
@@ -42,19 +42,21 @@
 			log("Configuring UI");
 			var tabContent = userInfo.querySelector('.tab-content'),
 					roadEventsTab = document.createElement('li'),
-					roadEventsContent = document.createElement('div');
+					roadEventsContent = document.createElement('div'),
+					roadEventsTitle = document.createElement('h4');
 
-			roadEventsTab.innerHTML = '<a href="#sidepanel-roadEvents" data-toggle="tab">' + I18n.t('road_events.layer_label') + '</a>';
+			roadEventsTab.innerHTML = '<a href="#sidepanel-roadEvents" data-toggle="tab">' + I18n.t('road_events.tab_name') + '</a>';
 			roadEventsContent.id = 'sidepanel-roadEvents';
 			roadEventsContent.className = 'tab-pane';
+			roadEventsTitle.appendChild(document.createTextNode(I18n.t('road_events.tab_title')));
+			roadEventsTitle.style.marginBottom = '5px';
+			roadEventsContent.appendChild(roadEventsTitle);
 			navTabs.appendChild(roadEventsTab);
 			tabContent.appendChild(roadEventsContent);
 
 			return {
 				add: function(element) {
 					roadEventsContent.appendChild(element);
-					log(element);
-					log(roadEventsContent);
 				}
 			};
 		}();
@@ -124,17 +126,20 @@
 						ul.removeChild(ul.firstChild);
 					}
 				},
-				setStatus: function(status) {
+				setStatus: function(status, count) {
 					var title, info;
 
 					this.clear();
 					ul.style.listStyleType = 'none';
 					if (status == 'loading') {
 						title = I18n.t('road_events.search.loading_header');
-						info = I18n.t('road_events.search.loading_subheader', {count: 1});
+						info = I18n.t('road_events.search.loading_subheader', {count: count});
 					} else if (status == 'noResult') {
 						title = I18n.t('road_events.results.empty_header');
 						info = I18n.t('road_events.results.empty_subheader');
+					} else if (status == 'noSources') {
+						title = I18n.t('road_events.results.no_sources_header');
+						info = I18n.t('road_events.results.no_sources_subheader');
 					} else {
 						log('Invalid status received: ' + status);
 						throw new Error('Invalid status received: ' + status);
@@ -189,7 +194,6 @@
 			return {
 				set: function(event) {
 					this.clear();
-					log(event);
 					for (var group in event.detail) {
 						var sectionHeader = document.createElement('legend');
 						sectionHeader.appendChild(document.createTextNode(I18n.t('road_events.detail.' + group)));
@@ -300,8 +304,7 @@
 				if (activeEvent !== null) {
 					mutations.forEach(function(mutation) {
 						for (var i = 0; i < mutation.addedNodes.length; i++) {
-							if (mutation.addedNodes[i].className == 'edit-closure modal-dialog') {
-								console.log(activeEvent);
+							if (mutation.addedNodes[i].querySelector('.edit-closure.new')) {
 								mutation.addedNodes[i].querySelector("input.form-control[name='closure_reason']").value = activeEvent.detail.identification.description;
 								if (activeEvent.start) {
 									mutation.addedNodes[i].querySelector("input[name='closure_hasStartDate']").checked = true;
@@ -317,7 +320,7 @@
 					});
 				}
 			});
-			observer.observe(document.getElementById('dialog-region'), { childList: true });
+			observer.observe(document.getElementById('edit-panel'), { childList: true, subtree: true });
 
 			return {
 				// Retrieve one specific event from a source
@@ -334,11 +337,17 @@
 				// Update all sources for the current location
 				update: function() {
 					var promises = [];
-					UI.ResultList.setStatus('loading');
 					activeEvent = null;
 					for (var source in sources) {
-						promises.push(sources[source].update());
+						if (sources[source].intersects(Waze.map.getExtent())) {
+							promises.push(sources[source].update());
+						}
 					}
+					if (promises.length === 0) {
+						UI.ResultList.setStatus('noSources');
+						return;
+					}
+					UI.ResultList.setStatus('loading', promises.length);
 					Promise.all(promises).then(function(results) {
 						var roadEvents = results.reduce(function(prev, curr) {
 							return prev.concat(curr);
@@ -372,7 +381,8 @@
 			// Proxy necessary as this API is not available via a secure connection
 			var url = 'https://tomputtemans.com/waze-scripts/road-events.php?source=gipod-workassignment',
 				projection = new OL.Projection("EPSG:4326"),
-				cache = []; // cached event details;
+				cache = [], // cached event details,
+				bounds = new OL.Bounds(280525, 6557859, 661237, 6712007);
 
 			// Input: 2014-12-22T00:00:00.000 - Output: 2014-12-22 00:00
 			function parseDateTime(datetime) {
@@ -381,6 +391,9 @@
 
 			return {
 				id: 'gipod_work',
+				intersects: function(view) {
+					return bounds.intersectsBounds(view);
+				},
 				update: function() {
 					return new Promise(function(resolve, reject) {
 						// Obtain the bounds and transform them to the projection used by GIPOD
@@ -494,7 +507,8 @@
 			// Proxy necessary as this API is not available via a secure connection
 			var url = 'https://tomputtemans.com/waze-scripts/road-events.php?source=gipod-manifestation',
 				projection = new OL.Projection("EPSG:4326"),
-				cache = []; // cached event details
+				cache = [], // cached event details
+				bounds = new OL.Bounds(280525, 6557859, 661237, 6712007);
 
 			// Input: 2014-12-22T00:00:00.000 - Output: 2014-12-22 00:00
 			function parseDateTime(datetime) {
@@ -503,6 +517,9 @@
 
 			return {
 				id: 'gipod_manifestation',
+				intersects: function(view) {
+					return bounds.intersectsBounds(view);
+				},
 				update: function() {
 					return new Promise(function(resolve, reject) {
 						// Obtain the bounds and transform them to the projection used by GIPOD
@@ -611,25 +628,39 @@
 				}
 			};
 		}());
+		
+		// Data source: Brussels Mobility (Brussels, Belgium)
+		/*RoadEvents.addSource(function() {
+			// Proxy necessary as this API is not available via a secure connection
+			var url = 'https://tomputtemans.com/waze-scripts/road-events.php?source=mobiris',
+				projection = new OL.Projection("EPSG:31370"),
+				cache = [], // cached events
+				bounds = new OL.Bounds(472208, 6579412, 499191, 6606318);
+			// http://www.bruxellesmobilite.irisnet.be/static/mobiris_files/nl/alerts.json*/
+		
 	}
 
 	function addTranslations() {
 		var strings = {
 			en: {
 				layer_label: "Road Events",
+				tab_name: "RED",
+				tab_title: "Road Events Data",
 				search: {
 					button_label: "Search current location",
 					loading_header: "Loading...",
 					loading_subheader: {
-						one: "Retrieving information from service",
-						other: "Retrieving information from services"
+						one: "Retrieving information from 1 service",
+						other: "Retrieving information from %{count} services"
 					}
 				},
 				results: {
 					empty_header: "No results found",
 					empty_subheader: "Please zoom out or pan to another area",
 					limit_reached_header: "Some results may have been omitted",
-					limit_reached_header: "This service limits the amount of results and this limit has been reached. Zoom in to limit the amount of results"
+					limit_reached_header: "A service limits the amount of results and this limit has been reached. Zoom in to see all results",
+					no_sources_header: "No data sources for this area",
+					no_sources_subheader: "There are no data sources configured for this area"
 				},
 				detail: {
 					back_to_list: "Back to results",
@@ -677,19 +708,23 @@
 			},
 			nl: {
 				layer_label: "Weggebeurtenissen",
+				tab_name: "RED",
+				tab_title: "Weggebeurtenissen (Road Events Data)",
 				search: {
 					button_label: "Zoek op huidige locatie",
 					loading_header: "Aan het laden...",
 					loading_subheader: {
-						one: "Informatie aan het opvragen bij dienst",
-						other: "Informatie aan het opvragen bij diensten"
+						one: "Informatie aan het opvragen bij 1 dienst",
+						other: "Informatie aan het opvragen bij %{count} diensten"
 					}
 				},
 				results: {
 					empty_header: "Geen resultaten gevonden",
 					empty_subheader: "Zoom uit of ga naar een andere locatie",
 					limit_reached_header: "Mogelijk ontbreken sommige resultaten",
-					limit_reached_header: "Deze dienst beperkt het aantal resultaten en deze limiet werd bereikt. Zoom in om het aantal resultaten te beperken"
+					limit_reached_header: "Een dienst beperkt het aantal resultaten en deze limiet werd bereikt. Zoom in om het alle resultaten te zien",
+					no_sources_header: "Geen databronnen voor dit gebied",
+					no_sources_subheader: "Er zijn geen databronnen ingesteld voor dit gebied"
 				},
 				detail: {
 					back_to_list: "Terug naar resultaten",
@@ -737,19 +772,23 @@
 			},
 			fr: {
 				layer_label: "Evénements routiers",
+				tab_name: "RED",
+				tab_title: "Evénements routiers (Road Events Data)",
 				search: {
 					button_label: "Cherchez ici",
 					loading_header: "Chargement en cours...",
 					loading_subheader: {
-						one: "En train de obtenir l'information chez la service",
-						other: "En train de obtenir l'information chez les services"
+						one: "En train de obtenir de l'information chez 1 service",
+						other: "En train de obtenir de l'information chez %{count} services"
 					}
 				},
 				results: {
 					empty_header: "Aucun résultat trouvé",
 					empty_subheader: "Dézoome ou déplace la carte",
 					limit_reached_header: "Quelques résultats peuvent manquer",
-					limit_reached_header: "La service limite la quantité de résultats et on a attaint cette limite. Agrandis la carte pour limiter les résultats"
+					limit_reached_header: "Une service limite la quantité de résultats et on a attaint cette limite. Agrandis la carte pour voir tout les résultats",
+					no_sources_header: "Aucun source pour cette région",
+					no_sources_subheader: "Aucun source de données spécifié pour cette région"
 				},
 				detail: {
 					back_to_list: "Retour aux résultats",
