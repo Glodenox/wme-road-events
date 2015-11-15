@@ -304,16 +304,20 @@
 				if (activeEvent !== null) {
 					mutations.forEach(function(mutation) {
 						for (var i = 0; i < mutation.addedNodes.length; i++) {
-							if (mutation.addedNodes[i].querySelector('.edit-closure.new')) {
-								mutation.addedNodes[i].querySelector("input.form-control[name='closure_reason']").value = activeEvent.detail.identification.description;
+							var node = mutation.addedNodes[i];
+							if (node !== Node.ELEMENT_NODE) {
+								continue;
+							}
+							if (node.querySelector('.edit-closure.new')) {
+								node.querySelector("input.form-control[name='closure_reason']").value = activeEvent.detail.identification.description;
 								if (activeEvent.start) {
-									mutation.addedNodes[i].querySelector("input[name='closure_hasStartDate']").checked = true;
-									mutation.addedNodes[i].querySelector("input.form-control[name='closure_startDate']").value = activeEvent.start.getFullYear() + '-' + zeroPad(activeEvent.start.getMonth()+1) + '-' + zeroPad(activeEvent.start.getDate());
-									mutation.addedNodes[i].querySelector("input.form-control[name='closure_startTime']").value = zeroPad(activeEvent.start.getHours()) + ':' + zeroPad(activeEvent.start.getMinutes());
+									node.querySelector("input[name='closure_hasStartDate']").checked = true;
+									node.querySelector("input.form-control[name='closure_startDate']").value = activeEvent.start.getFullYear() + '-' + zeroPad(activeEvent.start.getMonth()+1) + '-' + zeroPad(activeEvent.start.getDate());
+									node.querySelector("input.form-control[name='closure_startTime']").value = zeroPad(activeEvent.start.getHours()) + ':' + zeroPad(activeEvent.start.getMinutes());
 								}
 								if (activeEvent.end) {
-									mutation.addedNodes[i].querySelector("input.form-control[name='closure_endDate']").value = activeEvent.end.getFullYear() + '-' + zeroPad(activeEvent.end.getMonth()+1) + '-' + zeroPad(activeEvent.end.getDate());
-									mutation.addedNodes[i].querySelector("input.form-control[name='closure_endTime']").value = zeroPad(activeEvent.end.getHours()) + ':' + zeroPad(activeEvent.end.getMinutes());
+									node.querySelector("input.form-control[name='closure_endDate']").value = activeEvent.end.getFullYear() + '-' + zeroPad(activeEvent.end.getMonth()+1) + '-' + zeroPad(activeEvent.end.getDate());
+									node.querySelector("input.form-control[name='closure_endTime']").value = zeroPad(activeEvent.end.getHours()) + ':' + zeroPad(activeEvent.end.getMinutes());
 								}
 							}
 						}
