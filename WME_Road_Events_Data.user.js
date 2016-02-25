@@ -5,7 +5,7 @@
 // @include     https://www.waze.com/*/editor/*
 // @include     https://www.waze.com/editor/*
 // @include     https://editor-beta.waze.com/*
-// @version     1.1
+// @version     1.2
 // @grant       none
 // ==/UserScript==
 
@@ -341,9 +341,10 @@
 				// Update all sources for the current location
 				update: function() {
 					var promises = [];
+					var viewBounds = Waze.map.getExtent();
 					activeEvent = null;
 					for (var source in sources) {
-						if (sources[source].intersects(Waze.map.getExtent())) {
+						if (sources[source].intersects(viewBounds)) {
 							promises.push(sources[source].update());
 						}
 					}
@@ -531,9 +532,9 @@
 						// bounding box: left bottom coordinate | right top coordinate
 						var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
 						$.ajax({
-							url: url + '&bbox=' + bbox
-						}).done(function(response) {
-							var rawData = JSON.parse(response);
+							url: url + '&bbox=' + bbox,
+							dataType: 'json'
+						}).done(function(rawData) {
 							var roadEvents = rawData.map(function(data) {
 								return {
 									id: escapeString(data.gipodId),
@@ -557,9 +558,9 @@
 						callback(cache[gipodId]);
 					} else {
 						$.ajax({
-							url: url + '&id=' + gipodId
-						}).done(function(response) {
-							var data = JSON.parse(response);
+							url: url + '&id=' + gipodId,
+							dataType: 'json'
+						}).done(function(data) {
 							if (data.hindrance === null) {
 								data.hindrance = {
 									description: I18n.t('road_events.detail.no_hindrance'),
@@ -630,6 +631,85 @@
 						});
 					}
 				}
+			};
+		}());
+		
+		// Data source: Waze alerts by Wazers
+		RoadEvents.addSource(function() {
+			var projection = new OL.Projection("EPSG:4326");
+			var url = 'https://www.waze.com';
+			switch (Waze.location.code) {
+				case 'row':
+					url += '/row-rtserver/web/GeoRSS'; 
+					break;
+				case 'il':
+					url += '/il-rtserver/web/GeoRSS'; 
+					break;
+				default: 
+					url += '/rtserver/web/GeoRSS';
+			}
+			var projection = new OL.Projection("EPSG:4326");
+			var cache = {};
+			
+			return {
+				id: 'waze_alerts',
+				intersects: function(view) {
+					return true; // Available worldwide
+				},
+				update: function() {
+					return new Promise(function(resolve, reject) {
+						var extent = Waze.map.getExtent().transform(Waze.map.getProjectionObject(), projection);
+						var data = {
+							format: "JSON",
+							types: "alerts",
+							left: extent.left,
+							right: extent.right,
+							bottom: extent.bottom,
+							top: extent.top
+						};
+						$.ajax({
+							url: url,
+							data: data,
+							dataType: 'json'
+						}).done(function(response) {
+							var roadEvents = [];
+							if (response.alerts) {
+								response.alerts.forEach(function(alert) {
+									roadEvents.push({
+										id: alert.id,
+										source: 'waze_alerts',
+										description: escapeString(alert.type),
+										start: new Date(alert.pubMillis),
+										end: new Date(),
+										hindrance: false,
+										color: '#614051',
+										coordinate: new OL.Geometry.Point(alert.location.x, alert.location.y).transform(projection, Waze.map.getProjectionObject())
+									});
+									cache[alert.id] = alert;
+								});
+							}
+							resolve(roadEvents);
+						}).fail(function(xhr, text) {
+							resolve([]);
+						});;
+					});
+				},
+				get: function(id, callback) {
+					var alert = cache[id];
+					callback({
+						detail: {
+							identification: {
+								description: alert.type + ': ' + escapeString(alert.reportDescription),
+								periods: [ new Date(alert.pubMillis).toISOString().substring(0, 10) ],
+								id: alert.id
+							},
+							contact: {
+								owner: 'Waze',
+								initiator: escapeString(alert.reportBy)
+							}
+						}
+					});
+				}				
 			};
 		}());
 		

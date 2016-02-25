@@ -1,15 +1,16 @@
-# Road Events Data
+# WME Road Events Data
 
 This userscript augments the [Waze Map Editor](https://www.waze.com/editor/) by providing a means to search for any nearby reported road events. If you get a User Request mentioning road works it might be possible to find which event they are referring to without ever having to leave WME.
 __Note: the script is still under development and not too many sources have been added so far. This can be expanded quite easily though.__
 
 ### Current data sources
 
+- Waze alerts by other Wazers (from livemap)
 - GIPOD (Flanders, Belgium)
 
 ## Installation instructions
 
-> TL;DR: install as most other WME userscripts from its [Greasy Fork page](https://greasyfork.org/nl/scripts/13316-wme-road-events-data)
+> TL;DR: install as most other WME userscripts from its [Greasy Fork page](https://greasyfork.org/scripts/13316-wme-road-events-data)
 
 Userscripts are snippets of code that are executed after the loading of certain webpages. This script does this after the loading of the Waze Map Editor. In order to run userscripts in your browser, you are adviced to use Firefox or Google Chrome.
 
@@ -17,7 +18,7 @@ You will need to install an add-on that manages userscripts for this to work. If
 
 These add-ons will be visible in the browser with an additional button that is visible to the right of the address bar. Through this button it will be possible to maintain any userscripts you install.
 
-For Road Events Data, you should be able to install the script at [Greasy Fork](https://greasyfork.org/nl/scripts/13316-wme-road-events-data). There will be a big green install button which you will have to press to install the script.
+For Road Events Data, you should be able to install the script at [Greasy Fork](https://greasyfork.org/scripts/13316-wme-road-events-data). There will be a big green install button which you will have to press to install the script.
 __When installing userscripts always pay attention to the site(s) on which the script runs.__ This script only runs on Waze.com, so other sites will not be affected in any way.
 
 After installing a userscript, you will be able to find it working on the site(s) specified. Do note that if you had the page open before installing the userscript, you will first need to refresh the page.
