@@ -5,7 +5,7 @@
 // @include     https://www.waze.com/*/editor/*
 // @include     https://www.waze.com/editor/*
 // @include     https://editor-beta.waze.com/*
-// @version     1.2
+// @version     1.3
 // @grant       none
 // ==/UserScript==
 
@@ -14,8 +14,7 @@
 		RoadEvents;
 
 	function roadEventsInit() {
-		var userInfo = document.getElementById('user-info'),
-			navTabs = userInfo.querySelector('.nav-tabs');
+		var userInfo = document.getElementById('user-info');
 
 		// Check initialisation
 		if (typeof Waze == 'undefined' || typeof I18n == 'undefined') {
@@ -28,6 +27,7 @@
 			log('User info unavailable, map still loading');
 			return;
 		}
+		var navTabs = userInfo.querySelector('.nav-tabs');
 		if (navTabs === null) {
 			setTimeout(roadEventsInit, 660);
 			log('Nav tabs unavailable, map still loading');
@@ -38,39 +38,62 @@
 		// Set translation strings
 		addTranslations();
 
+		if (!localStorage.WME_RoadEventsData) {
+			var data = {};
+			data.disabledSources = [];
+			localStorage.WME_RoadEventsData = JSON.stringify(data);
+		}
+
 		UI.Tab = function() {
 			log("Configuring UI");
 			var tabContent = userInfo.querySelector('.tab-content'),
 					roadEventsTab = document.createElement('li'),
 					roadEventsContent = document.createElement('div'),
-					roadEventsTitle = document.createElement('h4');
+					roadEventsFooter = document.createElement('p');
 
 			roadEventsTab.innerHTML = '<a href="#sidepanel-roadEvents" data-toggle="tab">' + I18n.t('road_events.tab_name') + '</a>';
 			roadEventsContent.id = 'sidepanel-roadEvents';
 			roadEventsContent.className = 'tab-pane';
-			roadEventsTitle.appendChild(document.createTextNode(I18n.t('road_events.tab_title')));
-			roadEventsTitle.style.marginBottom = '5px';
-			roadEventsContent.appendChild(roadEventsTitle);
 			navTabs.appendChild(roadEventsTab);
 			tabContent.appendChild(roadEventsContent);
+			roadEventsFooter.appendChild(document.createTextNode(GM_info.script.name + ': v' + GM_info.script.version));
+			roadEventsFooter.style.fontSize = '11px';
+			roadEventsFooter.style.marginTop = '1em';
+			roadEventsContent.appendChild(roadEventsFooter);
 
 			return {
 				add: function(element) {
-					roadEventsContent.appendChild(element);
+					roadEventsContent.insertBefore(element, roadEventsFooter);
 				}
 			};
 		}();
 		UI.ResultList = function() {
+			var filterPane = document.createElement('div');
+			// List to contain results encapsulated in this object
+			var ul = document.createElement('ul');
+			filterPane.style.display = 'none';
+			
 			function parseDate(date) {
 				return date.getFullYear() + '/' + zeroPad(date.getMonth()+1) + '/' + zeroPad(date.getDate()) + ' ' + zeroPad(date.getHours()) + ':' + zeroPad(date.getMinutes());
 			}
-			function createButton(text, handler) {
+			
+			function createButton(text, handler, title) {
 				var button = document.createElement('button');
 				button.type = 'button';
 				button.className = 'btn btn-default';
 				button.innerHTML = text;
 				button.addEventListener('click', handler, true);
+				if (title) {
+					button.title = title;
+					$(button).tooltip();
+				}
 				return button;
+			}
+
+			function clearList() {
+				while (ul.firstChild) {
+					ul.removeChild(ul.firstChild);
+				}
 			}
 
 			// Add search button
@@ -80,8 +103,43 @@
 			});
 			UI.Tab.add(searchButton);
 
-			// List to contain results encapsulated in this object
-			var ul = document.createElement('ul');
+			// Add filter button
+			var filterButton = createButton('<span class="fa" style="font-size:14px"></span>', function() {
+				$(filterPane).toggle();
+				return false;
+			}, I18n.t('road_events.search.filter_title'));
+			filterButton.style.marginLeft = '0.4em';
+			UI.Tab.add(filterButton);
+			
+			// Add clear button
+			var clearButton = createButton('<span class="fa" style="font-size:14px"></span>', function() {
+				clearList();
+				UI.Layer.clear();
+				UI.ItemDetail.hide();
+				UI.ResultList.show();
+				return false;
+			}, I18n.t('road_events.results.clear_title'));
+			clearButton.className = 'btn btn-danger';
+			clearButton.style.marginLeft = '0.2em';
+			UI.Tab.add(clearButton);
+			
+			// Fill in filter pane
+			var filterForm = document.createElement('form');
+			filterForm.className = 'form-horizontal';
+			var sourceGroup = document.createElement('div');
+			sourceGroup.className = 'form-group';
+			var generalLabel = document.createElement('label');
+			generalLabel.className = 'col-sm-3 control-label';
+			generalLabel.appendChild(document.createTextNode('Sources:'));
+			sourceGroup.appendChild(generalLabel);
+			var sourceList = document.createElement('div');
+			sourceList.className = 'col-sm-9';
+
+			sourceGroup.appendChild(sourceList);
+			filterForm.appendChild(sourceGroup);
+			filterPane.appendChild(filterForm);
+			UI.Tab.add(filterPane);
+
 			ul.className = 'result-list';
 			ul.style.marginTop = '5px';
 			ul.style.paddingLeft = '10px';
@@ -121,11 +179,7 @@
 					UI.ItemDetail.hide();
 					UI.ResultList.show();
 				},
-				clear: function() {
-					while (ul.firstChild) {
-						ul.removeChild(ul.firstChild);
-					}
-				},
+				clear: clearList,
 				setStatus: function(status, count) {
 					var title, info;
 
@@ -166,6 +220,19 @@
 				},
 				hide: function() {
 					ul.style.display = 'none';
+				},
+				addFilter: function(sourceName, enabled, action) {
+					var newSource = document.createElement('div');
+					newSource.className = 'checkbox';
+					var sourceLabel = document.createElement('label');
+					var sourceCheckbox = document.createElement('input');
+					sourceCheckbox.type = 'checkbox';
+					sourceCheckbox.checked = enabled;
+					sourceLabel.appendChild(sourceCheckbox);
+					sourceLabel.appendChild(document.createTextNode(sourceName));
+					newSource.appendChild(sourceLabel);
+					sourceCheckbox.addEventListener('click', function(e) { action(this.checked); });
+					sourceList.appendChild(newSource);
 				}
 			};
 		}();
@@ -173,22 +240,30 @@
 			var pane = document.createElement('div');
 			pane.style.display = 'none';
 			pane.style.marginTop = '8px';
-			var title = document.createElement('h4');
 			var details = document.createElement('div');
-			var backButton = document.createElement('button');
+			var backToList = document.createElement('button');
+			var backToListIcon = document.createElement('span');
 			var listeners = [];
-			backButton.type = 'button';
-			backButton.className = 'btn btn-default';
-			backButton.innerHTML = I18n.t('road_events.detail.back_to_list');
-			backButton.addEventListener('click', function() {
+			
+			function returnToList() {
 				activeEvent = null;
 				UI.Layer.removeType("area");
 				UI.ItemDetail.hide();
 				UI.ResultList.show();
-			});
-			pane.appendChild(title);
+			}
+			
+			backToListIcon.className = 'fa';
+			backToListIcon.appendChild(document.createTextNode(''));
+			backToListIcon.style.marginRight = '1em';
+			backToList.appendChild(backToListIcon);
+			backToList.appendChild(document.createTextNode(I18n.t('road_events.detail.back_to_list')));
+			backToList.className = 'btn btn-link';
+			var backToListBottom = backToList.cloneNode(true);
+			backToList.addEventListener('click', returnToList);
+			backToListBottom.addEventListener('click', returnToList);
+			pane.appendChild(backToList);
 			pane.appendChild(details);
-			pane.appendChild(backButton);
+			pane.appendChild(backToListBottom);
 			UI.Tab.add(pane);
 
 			return {
@@ -241,35 +316,40 @@
 		UI.Layer = function() {
 			var layer = new OL.Layer.Vector(I18n.t('road_events.layer_label'), {
 				styleMap: new OL.StyleMap({
-					'default': new OL.Style(OL.Util.applyDefaults({
+					'default': new OL.Style({
 						pointRadius: 10,
 						strokeColor: '#eee',
+						fillColor: '${color}',
 						fontColor: '#fff',
-						fontWeight: 'bold'
-					}, OL.Feature.Vector.style["default"])),
-					'select': new OL.Style(OL.Util.applyDefaults({
+						fontWeight: 'bold',
+						label: '${index}',
+						labelSelect: true
+					}),
+					'select': new OL.Style({
 						pointRadius: 10,
 						strokeColor: '#aaa',
+						fillColor: '${color}',
 						fontColor: '#fff',
-						fontWeight: 'bold'
-					}, OL.Feature.Vector.style["select"]))
+						fontWeight: 'bold',
+						label: '${index}',
+						labelSelect: true
+					})
 				})
 			});
 			Waze.map.addLayer(layer);
-			// TODO: selecting features doesn't work yet, missing something apparently?
-			var selectFeature = new OL.Control.SelectFeature(layer);
-			Waze.map.addControl(selectFeature);
-			layer.events.on({
-				'featureselected': function(e) {
-					log(e);
+			
+			var selectControl = new OL.Control.SelectFeature(layer, {
+				onSelect: function(e) {
+					console.log('SelectFeature onSelect', e, this);
 				}
 			});
+			Waze.map.addControl(selectControl);
+			selectControl.activate();
 
 			function makeVector(event) {
 				return new OL.Feature.Vector(
 					event.coordinate,
-					{ type: 'marker', description: event.description, id: event.id },
-					{ pointRadius: 10, fillColor: event.color, strokeColor: '#eee', label: event.index.toString(), fontColor: '#fff', fontWeight: 'bold' }
+					{ type: 'marker', description: event.description, id: event.id, color: event.color, index: event.index.toString() }
 				);
 			}
 
@@ -344,7 +424,7 @@
 					var viewBounds = Waze.map.getExtent();
 					activeEvent = null;
 					for (var source in sources) {
-						if (sources[source].intersects(viewBounds)) {
+						if (!sources[source].disabled && sources[source].intersects(viewBounds)) {
 							promises.push(sources[source].update());
 						}
 					}
@@ -377,9 +457,24 @@
 				// Add a new source of road events
 				addSource: function(source) {
 					sources[source.id] = source;
+					source.disabled = JSON.parse(localStorage.WME_RoadEventsData).disabledSources.indexOf(source.id) >= 0;
+					UI.ResultList.addFilter(source.name, !source.disabled, function(enabled) {
+						source.disabled = !enabled;
+						
+						var data = JSON.parse(localStorage.WME_RoadEventsData);
+						if (enabled) {
+							if (data.disabledSources.indexOf(source.id) >= 0) {
+								data.disabledSources.splice(data.disabledSources.indexOf(source.id), 1);
+							}
+						} else {
+							data.disabledSources.push(source.id);
+						}
+						localStorage.WME_RoadEventsData = JSON.stringify(data);
+					});
 				}
 			};
 		}();
+		window.RoadEvents = RoadEvents;
 
 		// Data source: GIPOD Work Assignments (Flanders, Belgium)
 		RoadEvents.addSource(function() {
@@ -396,6 +491,7 @@
 
 			return {
 				id: 'gipod_work',
+				name: 'GIPOD Work Assignments',
 				intersects: function(view) {
 					return bounds.intersectsBounds(view);
 				},
@@ -522,6 +618,7 @@
 
 			return {
 				id: 'gipod_manifestation',
+				name: 'GIPOD Manifestations',
 				intersects: function(view) {
 					return bounds.intersectsBounds(view);
 				},
@@ -640,19 +737,20 @@
 			var url = 'https://www.waze.com';
 			switch (Waze.location.code) {
 				case 'row':
-					url += '/row-rtserver/web/GeoRSS'; 
+					url += '/row-rtserver/web/TGeoRSS'; 
 					break;
 				case 'il':
-					url += '/il-rtserver/web/GeoRSS'; 
+					url += '/il-rtserver/web/TGeoRSS'; 
 					break;
 				default: 
-					url += '/rtserver/web/GeoRSS';
+					url += '/rtserver/web/TGeoRSS';
 			}
 			var projection = new OL.Projection("EPSG:4326");
 			var cache = {};
 			
 			return {
 				id: 'waze_alerts',
+				name: 'Waze livemap alerts',
 				intersects: function(view) {
 					return true; // Available worldwide
 				},
@@ -660,7 +758,6 @@
 					return new Promise(function(resolve, reject) {
 						var extent = Waze.map.getExtent().transform(Waze.map.getProjectionObject(), projection);
 						var data = {
-							format: "JSON",
 							types: "alerts",
 							left: extent.left,
 							right: extent.right,
@@ -691,15 +788,22 @@
 							resolve(roadEvents);
 						}).fail(function(xhr, text) {
 							resolve([]);
-						});;
+						});
 					});
 				},
 				get: function(id, callback) {
-					var alert = cache[id];
+					var alert = cache[id],
+							description = alert.type;
+					if (alert.reportDescription) {
+						description += ' ' + alert.reportDescription;
+					}
+					if (alert.subtype) {
+						description += ' ' + alert.subtype;
+					}
 					callback({
 						detail: {
 							identification: {
-								description: alert.type + ': ' + escapeString(alert.reportDescription),
+								description: escapeString(description),
 								periods: [ new Date(alert.pubMillis).toISOString().substring(0, 10) ],
 								id: alert.id
 							},
@@ -731,7 +835,8 @@
 				tab_name: "RED",
 				tab_title: "Road Events Data",
 				search: {
-					button_label: "Search current location",
+					button_label: "Search current area",
+					filter_title: "Select data sources",
 					loading_header: "Loading...",
 					loading_subheader: {
 						one: "Retrieving information from 1 service",
@@ -744,7 +849,8 @@
 					limit_reached_header: "Some results may have been omitted",
 					limit_reached_header: "A service limits the amount of results and this limit has been reached. Zoom in to see all results",
 					no_sources_header: "No data sources for this area",
-					no_sources_subheader: "There are no data sources configured for this area"
+					no_sources_subheader: "There are no data sources configured for this area",
+					clear_title: "Clear results"
 				},
 				detail: {
 					back_to_list: "Back to results",
@@ -795,7 +901,8 @@
 				tab_name: "RED",
 				tab_title: "Weggebeurtenissen (Road Events Data)",
 				search: {
-					button_label: "Zoek op huidige locatie",
+					button_label: "Gebied doorzoeken",
+					filter_title: "Selecteer databronnen",
 					loading_header: "Aan het laden...",
 					loading_subheader: {
 						one: "Informatie aan het opvragen bij 1 dienst",
@@ -808,7 +915,8 @@
 					limit_reached_header: "Mogelijk ontbreken sommige resultaten",
 					limit_reached_header: "Een dienst beperkt het aantal resultaten en deze limiet werd bereikt. Zoom in om het alle resultaten te zien",
 					no_sources_header: "Geen databronnen voor dit gebied",
-					no_sources_subheader: "Er zijn geen databronnen ingesteld voor dit gebied"
+					no_sources_subheader: "Er zijn geen databronnen ingesteld voor dit gebied",
+					clear_title: "Resultaten verwijderen"
 				},
 				detail: {
 					back_to_list: "Terug naar resultaten",
@@ -860,6 +968,7 @@
 				tab_title: "Evénements routiers (Road Events Data)",
 				search: {
 					button_label: "Cherchez ici",
+					filter_title: "Sélectionne sources des données",
 					loading_header: "Chargement en cours...",
 					loading_subheader: {
 						one: "En train de obtenir de l'information chez 1 service",
@@ -872,7 +981,8 @@
 					limit_reached_header: "Quelques résultats peuvent manquer",
 					limit_reached_header: "Une service limite la quantité de résultats et on a attaint cette limite. Agrandis la carte pour voir tout les résultats",
 					no_sources_header: "Aucun source pour cette région",
-					no_sources_subheader: "Aucun source de données spécifié pour cette région"
+					no_sources_subheader: "Aucun source de données spécifié pour cette région",
+					clear_title: "Supprime les résultats"
 				},
 				detail: {
 					back_to_list: "Retour aux résultats",
@@ -965,7 +1075,7 @@
 		return null;
 	}
 
-	// TODO: further implement this without using the console
+	// TODO: handle these calls visually for the user
 	function showError(error) {
 		log(error);
 	}
