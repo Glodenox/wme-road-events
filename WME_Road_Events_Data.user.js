@@ -2,10 +2,8 @@
 // @name        WME Road Events Data
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
-// @include     https://www.waze.com/*/editor/*
-// @include     https://www.waze.com/editor/*
-// @include     https://editor-beta.waze.com/*
-// @version     1.3
+// @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/.*$/
+// @version     1.4
 // @grant       none
 // ==/UserScript==
 
@@ -60,6 +58,16 @@
 			roadEventsFooter.style.fontSize = '11px';
 			roadEventsFooter.style.marginTop = '1em';
 			roadEventsContent.appendChild(roadEventsFooter);
+			
+			Waze.app.modeController.model.bind('change:mode', function(model, modeId) {
+				if (modeId == 0) {
+					userInfo = document.getElementById('user-info');
+					navTabs = userInfo.querySelector('.nav-tabs');
+					tabContent = userInfo.querySelector('.tab-content');
+					navTabs.appendChild(roadEventsTab);
+					tabContent.appendChild(roadEventsContent);
+				}
+			});
 
 			return {
 				add: function(element) {
@@ -286,6 +294,8 @@
 									pContent += '<strong>' + I18n.t('road_events.detail.' + name) + ":</strong> ";
 									if (typeof item === 'boolean') {
 										pContent += I18n.t('road_events.detail.' + (item ? 'yes' : 'no'));
+									} else if (typeof item === 'string' && item.startsWith('http')) {
+										pContent += '<a href="' + item + '" target="_blank">' + item + '</a>';
 									} else {
 										pContent += item;
 									}
@@ -322,8 +332,7 @@
 						fillColor: '${color}',
 						fontColor: '#fff',
 						fontWeight: 'bold',
-						label: '${index}',
-						labelSelect: true
+						label: '${index}'
 					}),
 					'select': new OL.Style({
 						pointRadius: 10,
@@ -331,21 +340,12 @@
 						fillColor: '${color}',
 						fontColor: '#fff',
 						fontWeight: 'bold',
-						label: '${index}',
-						labelSelect: true
+						label: '${index}'
 					})
 				})
 			});
 			Waze.map.addLayer(layer);
 			
-			var selectControl = new OL.Control.SelectFeature(layer, {
-				onSelect: function(e) {
-					console.log('SelectFeature onSelect', e, this);
-				}
-			});
-			Waze.map.addControl(selectControl);
-			selectControl.activate();
-
 			function makeVector(event) {
 				return new OL.Feature.Vector(
 					event.coordinate,
@@ -591,7 +591,7 @@
 								},
 								start: new Date(data.startDateTime),
 								end: new Date(data.endDateTime),
-								id: escapeString(data.gipodId),
+								id: 'http://www.geopunt.be/kaart?app=Hinder_in_kaart_app&lang=nl&GIPODID=' + escapeString(data.gipodId),
 								vector: vector,
 								rawData: data
 							};
@@ -719,7 +719,7 @@
 								},
 								start: new Date(data.periods ? data.periods[0].startDateTime : null),
 								end: new Date(data.periods ? data.periods[0].endDateTime : null),
-								id: escapeString(data.gipodId),
+								id: 'http://www.geopunt.be/kaart?app=Hinder_in_kaart_app&lang=nl&GIPODID=' + escapeString(data.gipodId),
 								vector: vector,
 								rawData: data
 							};
