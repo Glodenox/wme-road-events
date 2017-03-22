@@ -3,7 +3,7 @@
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/.*$/
-// @version     1.5
+// @version     1.6
 // @grant       none
 // ==/UserScript==
 
@@ -1024,7 +1024,7 @@
         }
       }
     };
-    strings.en_GB = strings.en;
+    strings.en_GB = strings['en-US'] = strings.en;
     I18n.availableLocales.forEach(function(locale) {
       if (I18n.translations[locale]) {
         I18n.translations[locale].road_events = strings[locale];
