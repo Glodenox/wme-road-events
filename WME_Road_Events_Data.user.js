@@ -3,7 +3,7 @@
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
-// @version     1.6.1
+// @version     1.6.2
 // @grant       none
 // ==/UserScript==
 
@@ -15,7 +15,7 @@
     var userInfo = document.getElementById('user-info');
 
     // Check initialisation
-    if (typeof Waze == 'undefined' || typeof I18n == 'undefined') {
+    if (typeof W == 'undefined' || typeof I18n == 'undefined') {
       setTimeout(roadEventsInit, 660);
       log('Waze object unavailable, map still loading');
       return;
@@ -59,7 +59,7 @@
       roadEventsFooter.style.marginTop = '1em';
       roadEventsContent.appendChild(roadEventsFooter);
       
-      Waze.app.modeController.model.bind('change:mode', function(model, modeId) {
+      W.app.modeController.model.bind('change:mode', function(model, modeId) {
         if (modeId == 0) {
           userInfo = document.getElementById('user-info');
           navTabs = userInfo.querySelector('.nav-tabs');
@@ -350,7 +350,7 @@
           })
         })
       });
-      Waze.map.addLayer(layer);
+      W.map.addLayer(layer);
       
       function makeVector(event) {
         return new OL.Feature.Vector(
@@ -420,14 +420,14 @@
             activeEvent = detail;
             if (detail.vector) {
               UI.Layer.add(detail.vector);
-              Waze.map.zoomToExtent(detail.vector.geometry.getBounds());
+              W.map.zoomToExtent(detail.vector.geometry.getBounds());
             }
           });
         },
         // Update all sources for the current location
         update: function() {
           var promises = [];
-          var viewBounds = Waze.map.getExtent();
+          var viewBounds = W.map.getExtent();
           activeEvent = null;
           for (var source in sources) {
             if (!sources[source].disabled && sources[source].intersects(viewBounds)) {
@@ -499,7 +499,7 @@
         update: function() {
           return new Promise(function(resolve, reject) {
             // Obtain the bounds and transform them to the projection used by GIPOD
-            var bounds = Waze.map.calculateBounds().transform(Waze.map.getProjectionObject(), projection);
+            var bounds = W.map.calculateBounds().transform(W.map.getProjectionObject(), projection);
             // bounding box: left bottom coordinate | right top coordinate
             var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
             $.ajax({
@@ -515,7 +515,7 @@
                   end: data.endDateTime,
                   hindrance: data.importantHindrance,
                   color: (data.importantHindrance ? '#ff3333' : '#ff8c00'),
-                  coordinate: new OL.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, Waze.map.getProjectionObject())
+                  coordinate: new OL.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, W.map.getProjectionObject())
                 };
               });
               resolve(roadEvents);
@@ -549,13 +549,13 @@
                 var poly = null;
                 if (data.location.geometry.type == 'Polygon') {
                   var ring = new OL.Geometry.LinearRing(data.location.geometry.coordinates[0].map(function(coord) {
-                    return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, Waze.map.getProjectionObject());
+                    return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
                   }));
                   poly = new OL.Geometry.Polygon([ ring ]);
                 } else if (data.location.geometry.type == 'MultiPolygon') {
                   rings = data.location.geometry.coordinates[0].map(function(coords) {
                     return new OL.Geometry.LinearRing(coords.map(function(coord) {
-                      return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, Waze.map.getProjectionObject());
+                      return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
                     }));
                   });
                   poly = new OL.Geometry.Polygon(rings);
@@ -621,7 +621,7 @@
         update: function() {
           return new Promise(function(resolve, reject) {
             // Obtain the bounds and transform them to the projection used by GIPOD
-            var bounds = Waze.map.calculateBounds().transform(Waze.map.getProjectionObject(), projection);
+            var bounds = W.map.calculateBounds().transform(W.map.getProjectionObject(), projection);
             // bounding box: left bottom coordinate | right top coordinate
             var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
             $.ajax({
@@ -637,7 +637,7 @@
                   end: data.endDateTime,
                   hindrance: data.importantHindrance,
                   color: (data.importantHindrance ? '#3333ff' : '#008cff'),
-                  coordinate: new OL.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, Waze.map.getProjectionObject())
+                  coordinate: new OL.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, W.map.getProjectionObject())
                 };
               });
               resolve(roadEvents);
@@ -671,13 +671,13 @@
                 var poly = null;
                 if (data.location.geometry.type == 'Polygon') {
                   var ring = new OL.Geometry.LinearRing(data.location.geometry.coordinates[0].map(function(coord) {
-                    return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, Waze.map.getProjectionObject());
+                    return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
                   }));
                   poly = new OL.Geometry.Polygon([ ring ]);
                 } else if (data.location.geometry.type == 'MultiPolygon') {
                   rings = data.location.geometry.coordinates[0].map(function(coords) {
                     return new OL.Geometry.LinearRing(coords.map(function(coord) {
-                      return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, Waze.map.getProjectionObject());
+                      return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
                     }));
                   });
                   poly = new OL.Geometry.Polygon(rings);
@@ -731,7 +731,7 @@
     RoadEvents.addSource(function() {
       var projection = new OL.Projection("EPSG:4326");
       var url = 'https://www.waze.com';
-      switch (Waze.location.code) {
+      switch (W.location.code) {
         case 'row':
           url += '/row-rtserver/web/TGeoRSS'; 
           break;
@@ -752,7 +752,7 @@
         },
         update: function() {
           return new Promise(function(resolve, reject) {
-            var extent = Waze.map.getExtent().transform(Waze.map.getProjectionObject(), projection);
+            var extent = W.map.getExtent().transform(W.map.getProjectionObject(), projection);
             var data = {
               types: "alerts",
               left: extent.left,
@@ -775,7 +775,7 @@
                     start: alert.pubMillis,
                     hindrance: false,
                     color: '#614051',
-                    coordinate: new OL.Geometry.Point(alert.location.x, alert.location.y).transform(projection, Waze.map.getProjectionObject())
+                    coordinate: new OL.Geometry.Point(alert.location.x, alert.location.y).transform(projection, W.map.getProjectionObject())
                   });
                   cache[alert.id] = alert;
                 });
