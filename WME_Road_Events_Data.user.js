@@ -3,7 +3,7 @@
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
-// @version     1.6.2
+// @version     1.6.3
 // @connect     tomputtemans.com
 // @connect     *
 // @grant       GM_xmlhttpRequest
