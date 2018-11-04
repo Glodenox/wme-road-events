@@ -3,8 +3,8 @@
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
-// @version     1.6.3
-// @connect     tomputtemans.com
+// @version     1.7.0
+// @connect     api.gipod.vlaanderen.be
 // @connect     *
 // @grant       GM_xmlhttpRequest
 // ==/UserScript==
@@ -486,11 +486,10 @@
 
     // Data source: GIPOD Work Assignments (Flanders, Belgium)
     RoadEvents.addSource(function() {
-      // Proxy necessary as this API is not available via a secure connection
-      var url = 'https://tomputtemans.com/waze-scripts/road-events.php?source=gipod-workassignment',
-        projection = new OL.Projection("EPSG:4326"),
-        cache = [], // cached event details,
-        bounds = new OL.Bounds(280525, 6557859, 661237, 6712007);
+      var url = 'https://api.gipod.vlaanderen.be/ws/v1/workassignment',
+          projection = new OL.Projection("EPSG:4326"),
+          cache = [], // cached event details,
+          bounds = new OL.Bounds(280525, 6557859, 661237, 6712007);
 
       return {
         id: 'gipod_work',
@@ -506,7 +505,7 @@
             var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
             GM_xmlhttpRequest({
               method: 'GET',
-              url: url + '&bbox=' + bbox,
+              url: url + '?bbox=' + bbox,
               onload: function(response) {
                 var rawData = JSON.parse(response.responseText);
                 var roadEvents = rawData.map(function(data) {
@@ -535,7 +534,7 @@
           } else {
             GM_xmlhttpRequest({
               method: 'GET',
-              url: url + '&id=' + gipodId,
+              url: url + '/' + gipodId,
               onload: function(response) {
                 var data = JSON.parse(response.responseText);
                 if (data.hindrance === null) {
@@ -614,7 +613,7 @@
     // Data source: GIPOD Manifestations (Flanders, Belgium)
     RoadEvents.addSource(function() {
       // Proxy necessary as this API is not available via a secure connection
-      var url = 'https://tomputtemans.com/waze-scripts/road-events.php?source=gipod-manifestation',
+      var url = 'https://api.gipod.vlaanderen.be/ws/v1/manifestation',
         projection = new OL.Projection("EPSG:4326"),
         cache = [], // cached event details
         bounds = new OL.Bounds(280525, 6557859, 661237, 6712007);
@@ -633,7 +632,7 @@
             var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
             GM_xmlhttpRequest({
               method: 'GET',
-              url: url + '&bbox=' + bbox,
+              url: url + '?bbox=' + bbox,
               timeout: 10000,
               onload: function(response) {
                 var rawData = JSON.parse(response.responseText);
@@ -663,7 +662,7 @@
           } else {
             GM_xmlhttpRequest({
               method: 'GET',
-              url: url + '&id=' + gipodId,
+              url: url + '/' + gipodId,
               onload: function(response) {
                 var data = JSON.parse(response.responseText);
                 if (data.hindrance === null) {
