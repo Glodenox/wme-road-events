@@ -3,11 +3,13 @@
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
-// @version     1.7.0
+// @version     1.7.1
 // @connect     api.gipod.vlaanderen.be
 // @connect     *
 // @grant       GM_xmlhttpRequest
 // ==/UserScript==
+
+/* global I18n, W, $, OL */
 
 (function() {
   var UI = {},
@@ -262,7 +264,6 @@
       var listeners = [];
 
       function returnToList() {
-        activeEvent = null;
         UI.Layer.removeType("area");
         UI.ItemDetail.hide();
         UI.ResultList.show();
@@ -369,8 +370,10 @@
         // Add a set of road events to the map at once
         fill: function(events) {
           this.clear();
-          var vectors = events.map(makeVector);
-          layer.addFeatures(vectors);
+          if (events) {
+            var vectors = events.map(makeVector);
+            layer.addFeatures(vectors);
+          }
         },
         // Remove all features for which a certain attribute is set
         removeType: function(type) {
@@ -508,6 +511,10 @@
               url: url + '?bbox=' + bbox,
               onload: function(response) {
                 var rawData = JSON.parse(response.responseText);
+                if (!rawData) {
+                  resolve([]);
+                  return;
+                }
                 var roadEvents = rawData.map(function(data) {
                   return {
                     id: escapeString(data.gipodId),
@@ -558,7 +565,7 @@
                     }));
                     poly = new OL.Geometry.Polygon([ ring ]);
                   } else if (data.location.geometry.type == 'MultiPolygon') {
-                    rings = data.location.geometry.coordinates[0].map(function(coords) {
+                    var rings = data.location.geometry.coordinates[0].map(function(coords) {
                       return new OL.Geometry.LinearRing(coords.map(function(coord) {
                         return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
                       }));
@@ -574,7 +581,7 @@
                     identification: {
                       description: escapeString(data.description),
                       periods: [ parseDateTime(escapeString(data.startDateTime)) + ' - ' + parseDateTime(escapeString(data.endDateTime)) + (data.type ? ' (' + data.type + ')' : '') ],
-                      cities: data.location.cities.map(escapeString),
+                      cities: data.location.cities ? data.location.cities.map(escapeString) : '',
                       comment: escapeString(data.comment),
                       last_update: escapeString(parseDateTime(data.latestUpdate)),
                       id: escapeString(data.gipodId),
@@ -584,8 +591,8 @@
                       important_hindrance: data.hindrance.important === true,
                       description: escapeString(data.hindrance.description),
                       direction: escapeString(data.direction),
-                      locations: data.hindrance.locations.map(escapeString),
-                      effects: data.hindrance.effects.map(escapeString)
+                      locations: data.hindrance.locations ? data.hindrance.locations.map(escapeString) : '',
+                      effects: data.hindrance.effects ? data.hindrance.effects.map(escapeString) : ''
                     },
                     contact: {
                       owner: escapeString(data.owner),
@@ -636,6 +643,10 @@
               timeout: 10000,
               onload: function(response) {
                 var rawData = JSON.parse(response.responseText);
+                if (!rawData) {
+                  resolve([]);
+                  return;
+                }
                 var roadEvents = rawData.map(function(data) {
                   return {
                     id: escapeString(data.gipodId),
@@ -686,7 +697,7 @@
                     }));
                     poly = new OL.Geometry.Polygon([ ring ]);
                   } else if (data.location.geometry.type == 'MultiPolygon') {
-                    rings = data.location.geometry.coordinates[0].map(function(coords) {
+                    var rings = data.location.geometry.coordinates[0].map(function(coords) {
                       return new OL.Geometry.LinearRing(coords.map(function(coord) {
                         return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
                       }));
@@ -702,7 +713,7 @@
                     identification: {
                       description: escapeString(data.description),
                       periods: data.periods.map(function(period) {return parseDateTime(escapeString(period.startDateTime)) + ' - ' + parseDateTime(escapeString(period.endDateTime));}),
-                      cities: data.location.cities.map(escapeString),
+                      cities: data.location.cities ? data.location.cities.map(escapeString) : '',
                       event_type: escapeString(data.eventType),
                       comment: escapeString(data.comment),
                       id: escapeString(data.gipodId),
@@ -753,7 +764,6 @@
         default:
           url += '/rtserver/web/TGeoRSS';
       }
-      var projection = new OL.Projection("EPSG:4326");
       var cache = {};
 
       return {
