@@ -3,13 +3,13 @@
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
-// @version     1.7.1
+// @version     1.7.2
 // @connect     api.gipod.vlaanderen.be
 // @connect     *
 // @grant       GM_xmlhttpRequest
 // ==/UserScript==
 
-/* global I18n, W, $, OL */
+/* global I18n, W, $, OpenLayers */
 
 (function() {
   var UI = {},
@@ -162,7 +162,7 @@
         fill: function(events) {
           this.clear();
           ul.style.listStyleType = 'decimal';
-          events.forEach(function(event) {
+          events.forEach(function(event, index) {
             var li = document.createElement('li');
             li.className = 'result session-available';
             li.style.fontWeight = 'bold';
@@ -190,7 +190,7 @@
             }
             li.appendChild(subhead);
             li.addEventListener('click', function() {
-              RoadEvents.show(event);
+              RoadEvents.show(event, index + 1);
             });
             ul.appendChild(li);
           });
@@ -284,37 +284,60 @@
       UI.Tab.add(pane);
 
       return {
-        set: function(event) {
+        set: function(event, index) {
           this.clear();
+          var eventTitle  = document.createElement('h3');
+          eventTitle.style.borderBottom = '1px solid #cecece';
+          eventTitle.textContent = (index ? index + '. ' : '') + event.detail.description;
+          details.appendChild(eventTitle);
+          var moreInfoHeader = document.createElement('h3');
+          moreInfoHeader.style.marginTop = '1em';
+          moreInfoHeader.textContent = I18n.t('road_events.detail.more_info');
+          var moreInfoDataContainer = document.createElement('fieldset');
+          var moreInfoData = document.createElement('p');
+          moreInfoDataContainer.appendChild(moreInfoData);
+          if (event.start) {
+            moreInfoData.innerHTML = '<strong>' + I18n.t('road_events.detail.start_date') + ':</strong> ' + parseDateTime(event.start) + '<br />';
+          }
+          if (event.end) {
+            moreInfoData.innerHTML += '<strong>' + I18n.t('road_events.detail.end_date') + ':</strong> ' + parseDateTime(event.end) + '<br />';
+          }
+          if (event.id) {
+            moreInfoData.innerHTML += '<strong>' + I18n.t('road_events.detail.id') + ':</strong> ' + formatDataField(escapeString(event.id)) + '<br />';
+          }
+          if (moreInfoData.childNodes.length > 0) {
+            details.appendChild(moreInfoHeader);
+            details.appendChild(moreInfoData);
+          }
           for (var group in event.detail) {
-            var sectionHeader = document.createElement('legend');
-            sectionHeader.appendChild(document.createTextNode(I18n.t('road_events.detail.' + group)));
-            var sectionData = document.createElement('fieldset');
-            sectionData.appendChild(sectionHeader);
+            if (typeof event.detail[group] === 'string') {
+              continue;
+            }
+            var sectionHeader = document.createElement('h3');
+            sectionHeader.style.marginTop = '1em';
+            sectionHeader.textContent = I18n.t('road_events.detail.' + group);
+            details.appendChild(sectionHeader);
             var p = document.createElement('p');
-            var pContent = '';
             for (var name in event.detail[group]) {
               var item = event.detail[group][name];
               if (item !== null && item.length !== 0) {
                 if (Array.isArray(item)) {
-                  pContent += '<strong>' + I18n.t('road_events.detail.' + name, {count: item.length}) + ":</strong> ";
-                  pContent += item.join(', ');
+                  p.innerHTML += '<strong>' + I18n.t('road_events.detail.' + name, {count: item.length}) + ":</strong> ";
+                  p.innerHTML += item.join(', ');
                 } else {
-                  pContent += '<strong>' + I18n.t('road_events.detail.' + name) + ":</strong> ";
+                  p.innerHTML += '<strong>' + I18n.t('road_events.detail.' + name) + ":</strong> ";
                   if (typeof item === 'boolean') {
-                    pContent += I18n.t('road_events.detail.' + (item ? 'yes' : 'no'));
+                    p.innerHTML += I18n.t('road_events.detail.' + (item ? 'yes' : 'no'));
                   } else if (typeof item === 'string' && item.startsWith('http')) {
-                    pContent += '<a href="' + item + '" target="_blank">' + item + '</a>';
+                    p.innerHTML += '<a href="' + item + '" target="_blank">' + item + '</a>';
                   } else {
-                    pContent += item;
+                    p.innerHTML += item;
                   }
                 }
-                pContent += '<br/>';
+                p.innerHTML += '<br/>';
               }
             }
-            p.innerHTML = pContent;
-            sectionData.appendChild(p);
-            details.appendChild(sectionData);
+            details.appendChild(p);
           }
           UI.ResultList.hide();
           UI.ItemDetail.show();
@@ -333,9 +356,9 @@
       };
     }();
     UI.Layer = function() {
-      var layer = new OL.Layer.Vector(I18n.t('road_events.layer_label'), {
-        styleMap: new OL.StyleMap({
-          'default': new OL.Style({
+      var layer = new OpenLayers.Layer.Vector(I18n.t('road_events.layer_label'), {
+        styleMap: new OpenLayers.StyleMap({
+          'default': new OpenLayers.Style({
             pointRadius: 10,
             strokeColor: '#eee',
             fillColor: '${color}',
@@ -343,7 +366,7 @@
             fontWeight: 'bold',
             label: '${index}'
           }),
-          'select': new OL.Style({
+          'select': new OpenLayers.Style({
             pointRadius: 10,
             strokeColor: '#aaa',
             fillColor: '${color}',
@@ -356,7 +379,7 @@
       W.map.addLayer(layer);
 
       function makeVector(event) {
-        return new OL.Feature.Vector(
+        return new OpenLayers.Feature.Vector(
           event.coordinate,
           { type: 'marker', description: event.description, id: event.id, color: event.color, index: event.index.toString() }
         );
@@ -400,7 +423,7 @@
                 continue;
               }
               if (node.querySelector('.edit-closure.new')) {
-                node.querySelector("input.form-control[name='closure_reason']").value = activeEvent.detail.identification.description;
+                node.querySelector("input.form-control[name='closure_reason']").value = activeEvent.detail.description;
                 if (activeEvent.start) {
                   node.querySelector("input[name='closure_hasStartDate']").checked = true;
                   node.querySelector("input.form-control[name='closure_startDate']").value = activeEvent.start.getFullYear() + '-' + zeroPad(activeEvent.start.getMonth()+1) + '-' + zeroPad(activeEvent.start.getDate());
@@ -419,9 +442,9 @@
 
       return {
         // Retrieve one specific event from a source
-        show: function(event) {
+        show: function(event, index) {
           sources[event.source].get(event.id, function(detail) {
-            UI.ItemDetail.set(detail);
+            UI.ItemDetail.set(detail, index);
             activeEvent = detail;
             if (detail.vector) {
               UI.Layer.add(detail.vector);
@@ -490,9 +513,9 @@
     // Data source: GIPOD Work Assignments (Flanders, Belgium)
     RoadEvents.addSource(function() {
       var url = 'https://api.gipod.vlaanderen.be/ws/v1/workassignment',
-          projection = new OL.Projection("EPSG:4326"),
+          projection = new OpenLayers.Projection("EPSG:4326"),
           cache = [], // cached event details,
-          bounds = new OL.Bounds(280525, 6557859, 661237, 6712007);
+          bounds = new OpenLayers.Bounds(280525, 6557859, 661237, 6712007);
 
       return {
         id: 'gipod_work',
@@ -524,7 +547,7 @@
                     end: data.endDateTime,
                     hindrance: data.importantHindrance,
                     color: (data.importantHindrance ? '#ff3333' : '#ff8c00'),
-                    coordinate: new OL.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, W.map.getProjectionObject())
+                    coordinate: new OpenLayers.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, W.map.getProjectionObject())
                   };
                 });
                 resolve(roadEvents);
@@ -560,29 +583,31 @@
                 if (data.location.geometry !== null) {
                   var poly = null;
                   if (data.location.geometry.type == 'Polygon') {
-                    var ring = new OL.Geometry.LinearRing(data.location.geometry.coordinates[0].map(function(coord) {
-                      return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
+                    var ring = new OpenLayers.Geometry.LinearRing(data.location.geometry.coordinates[0].map(function(coord) {
+                      return new OpenLayers.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
                     }));
-                    poly = new OL.Geometry.Polygon([ ring ]);
+                    poly = new OpenLayers.Geometry.Polygon([ ring ]);
                   } else if (data.location.geometry.type == 'MultiPolygon') {
                     var rings = data.location.geometry.coordinates[0].map(function(coords) {
-                      return new OL.Geometry.LinearRing(coords.map(function(coord) {
-                        return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
+                      return new OpenLayers.Geometry.LinearRing(coords.map(function(coord) {
+                        return new OpenLayers.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
                       }));
                     });
-                    poly = new OL.Geometry.Polygon(rings);
+                    poly = new OpenLayers.Geometry.Polygon(rings);
                   }
                   if (poly !== null) {
-                    vector = new OL.Feature.Vector(poly, { type: 'area' }, { fillOpacity: 0.6, fillColor: '#ff8c00', strokeColor: '#eeeeee'});
+                    vector = new OpenLayers.Feature.Vector(poly, { type: 'area' }, { fillOpacity: 0.6, fillColor: '#ff8c00', strokeColor: '#eeeeee'});
                   }
                 }
                 var roadEvent = {
                   detail: {
+                    description: escapeString(data.description),
                     identification: {
-                      description: escapeString(data.description),
-                      periods: [ parseDateTime(escapeString(data.startDateTime)) + ' - ' + parseDateTime(escapeString(data.endDateTime)) + (data.type ? ' (' + data.type + ')' : '') ],
+                      periods: [ parseDateTime(escapeString(data.startDateTime)) + ' - ' + parseDateTime(escapeString(data.endDateTime)) ],
                       cities: data.location.cities ? data.location.cities.map(escapeString) : '',
                       comment: escapeString(data.comment),
+                      type: escapeString(data.type),
+                      state: escapeString(data.state),
                       last_update: escapeString(parseDateTime(data.latestUpdate)),
                       id: escapeString(data.gipodId),
                       source: 'GIPOD Work Assignments'
@@ -597,14 +622,16 @@
                     contact: {
                       owner: escapeString(data.owner),
                       contractor: escapeString(data.contactor),
+                      main_contractor: escapeString(data.mainContactor),
                       organisation: escapeString(data.contactDetails.organisation),
+                      reference: escapeString(data.reference),
                       email: formatDataField(escapeString(data.contactDetails.email)),
                       phone: escapeString(data.contactDetails.phoneNumber1)
                     }
                   },
                   start: new Date(data.startDateTime),
                   end: new Date(data.endDateTime),
-                  id: 'http://www.geopunt.be/kaart?app=Hinder_in_kaart_app&lang=nl&GIPODID=' + escapeString(data.gipodId),
+                  id: 'http://www.geopunt.be/kaart?app=Hinder_in_kaart_app&lang=nl&GIPODID=' + escapeString(data.gipodId) + '|' + escapeString(data.gipodId),
                   vector: vector,
                   rawData: data
                 };
@@ -621,9 +648,9 @@
     RoadEvents.addSource(function() {
       // Proxy necessary as this API is not available via a secure connection
       var url = 'https://api.gipod.vlaanderen.be/ws/v1/manifestation',
-        projection = new OL.Projection("EPSG:4326"),
+        projection = new OpenLayers.Projection("EPSG:4326"),
         cache = [], // cached event details
-        bounds = new OL.Bounds(280525, 6557859, 661237, 6712007);
+        bounds = new OpenLayers.Bounds(280525, 6557859, 661237, 6712007);
 
       return {
         id: 'gipod_manifestation',
@@ -656,7 +683,7 @@
                     end: data.endDateTime,
                     hindrance: data.importantHindrance,
                     color: (data.importantHindrance ? '#3333ff' : '#008cff'),
-                    coordinate: new OL.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, W.map.getProjectionObject())
+                    coordinate: new OpenLayers.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, W.map.getProjectionObject())
                   };
                 });
                 resolve(roadEvents);
@@ -692,30 +719,32 @@
                 if (data.location.geometry !== null) {
                   var poly = null;
                   if (data.location.geometry.type == 'Polygon') {
-                    var ring = new OL.Geometry.LinearRing(data.location.geometry.coordinates[0].map(function(coord) {
-                      return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
+                    var ring = new OpenLayers.Geometry.LinearRing(data.location.geometry.coordinates[0].map(function(coord) {
+                      return new OpenLayers.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
                     }));
-                    poly = new OL.Geometry.Polygon([ ring ]);
+                    poly = new OpenLayers.Geometry.Polygon([ ring ]);
                   } else if (data.location.geometry.type == 'MultiPolygon') {
                     var rings = data.location.geometry.coordinates[0].map(function(coords) {
-                      return new OL.Geometry.LinearRing(coords.map(function(coord) {
-                        return new OL.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
+                      return new OpenLayers.Geometry.LinearRing(coords.map(function(coord) {
+                        return new OpenLayers.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
                       }));
                     });
-                    poly = new OL.Geometry.Polygon(rings);
+                    poly = new OpenLayers.Geometry.Polygon(rings);
                   }
                   if (poly != null) {
-                    vector = new OL.Feature.Vector(poly, { type: 'area' }, { fillOpacity: 0.6, fillColor: '#ff8c00', strokeColor: '#eeeeee'});
+                    vector = new OpenLayers.Feature.Vector(poly, { type: 'area' }, { fillOpacity: 0.6, fillColor: '#ff8c00', strokeColor: '#eeeeee'});
                   }
                 }
                 var roadEvent = {
                   detail: {
+                    description: escapeString(data.description),
                     identification: {
-                      description: escapeString(data.description),
                       periods: data.periods.map(function(period) {return parseDateTime(escapeString(period.startDateTime)) + ' - ' + parseDateTime(escapeString(period.endDateTime));}),
                       cities: data.location.cities ? data.location.cities.map(escapeString) : '',
-                      event_type: escapeString(data.eventType),
                       comment: escapeString(data.comment),
+                      event_type: escapeString(data.eventType),
+                      state: escapeString(data.state),
+                      url: escapeString(data.url),
                       id: escapeString(data.gipodId),
                       source: 'GIPOD Manifestations'
                     },
@@ -731,13 +760,14 @@
                       owner: escapeString(data.owner),
                       initiator: escapeString((data.initiator ? data.initiator.organisation : null)),
                       organisation: escapeString(data.contactDetails.organisation),
+                      reference: escapeString(data.reference),
                       email: formatDataField(escapeString(data.contactDetails.email)),
                       phone: escapeString(data.contactDetails.phoneNumber1)
                     }
                   },
                   start: new Date(data.periods ? data.periods[0].startDateTime : null),
                   end: new Date(data.periods ? data.periods[0].endDateTime : null),
-                  id: 'http://www.geopunt.be/kaart?app=Hinder_in_kaart_app&lang=nl&GIPODID=' + escapeString(data.gipodId),
+                  id: 'http://www.geopunt.be/kaart?app=Hinder_in_kaart_app&lang=nl&GIPODID=' + escapeString(data.gipodId) + '|' + escapeString(data.gipodId),
                   vector: vector,
                   rawData: data
                 };
@@ -752,7 +782,7 @@
 
     // Data source: Waze alerts by Wazers
     RoadEvents.addSource(function() {
-      var projection = new OL.Projection("EPSG:4326");
+      var projection = new OpenLayers.Projection("EPSG:4326");
       var url = 'https://www.waze.com';
       switch (W.app.getAppRegionCode()) {
         case 'row':
@@ -797,7 +827,7 @@
                     start: alert.pubMillis,
                     hindrance: false,
                     color: '#614051',
-                    coordinate: new OL.Geometry.Point(alert.location.x, alert.location.y).transform(projection, W.map.getProjectionObject())
+                    coordinate: new OpenLayers.Geometry.Point(alert.location.x, alert.location.y).transform(projection, W.map.getProjectionObject())
                   });
                   cache[alert.id] = alert;
                 });
@@ -819,8 +849,8 @@
           }
           callback({
             detail: {
+              description: escapeString(description),
               identification: {
-                description: escapeString(description),
                 periods: [ new Date(alert.pubMillis).toISOString().substring(0, 10) ],
                 id: alert.id
               },
@@ -838,9 +868,9 @@
     /*RoadEvents.addSource(function() {
       // Proxy necessary as this API is not available via a secure connection
       var url = 'https://tomputtemans.com/waze-scripts/road-events.php?source=mobiris',
-        projection = new OL.Projection("EPSG:31370"),
+        projection = new OpenLayers.Projection("EPSG:31370"),
         cache = [], // cached events
-        bounds = new OL.Bounds(472208, 6579412, 499191, 6606318);
+        bounds = new OpenLayers.Bounds(472208, 6579412, 499191, 6606318);
       // http://www.bruxellesmobilite.irisnet.be/static/mobiris_files/nl/alerts.json*/
   }
 
@@ -870,6 +900,7 @@
         },
         detail: {
           back_to_list: "Back to results",
+          more_info: "More information",
           cities: {
             one: "City",
             other: "Cities"
@@ -887,6 +918,8 @@
           event_type: "Event type",
           hindrance: "Hindrance",
           id: "ID",
+          start_date: "Start date",
+          end_date: "End date",
           identification: "Identification",
           important_hindrance: "Important hindrance",
           initiator: "Initiator",
@@ -895,6 +928,7 @@
             one: "Location",
             other: "Locations"
           },
+          main_contractor: "Main Contractor",
           no: "no",
           no_hindrance: "no hindrance specified",
           no_organisation: "no organisation specified",
@@ -906,8 +940,10 @@
           },
           phone: "Phone number",
           recurrence: "Recurrences",
+          reference: "Reference",
           source: "Source",
           state: "State",
+          type: "Type",
           url: "URL",
           yes: "yes"
         }
@@ -936,6 +972,7 @@
         },
         detail: {
           back_to_list: "Terug naar resultaten",
+          more_info: "Meer informatie",
           cities: {
             one: "Grondgebied",
             other: "Grondgebied"
@@ -953,6 +990,8 @@
           event_type: "Evenementtype",
           hindrance: "Hinder",
           id: "ID",
+          start_date: "Begindatum",
+          end_date: "Einddatum",
           identification: "Identificatie",
           important_hindrance: "Ernstige hinder",
           initiator: "Initiatiefnemer",
@@ -961,6 +1000,7 @@
             one: "Plaats",
             other: "Plaatsen"
           },
+          main_contractor: "Hoofdaannemer",
           no: "nee",
           no_hindrance: "geen hinder vermeld",
           no_organisation: "geen organisatie vermeld",
@@ -972,8 +1012,10 @@
           },
           phone: "Telefoonnummer",
           recurrence: "Herhalingspatroon",
+          reference: "Referentie",
           source: "Bron",
           state: "Status",
+          type: "Type",
           url: "URL",
           yes: "ja"
         }
@@ -1002,6 +1044,7 @@
         },
         detail: {
           back_to_list: "Retour aux résultats",
+          more_info: "Détails",
           cities: {
             one: "Commune",
             other: "Communes"
@@ -1019,6 +1062,8 @@
           event_type: "Type d'événement",
           hindrance: "Obstacles",
           id: "ID",
+          start_date: "Date de début",
+          end_date: "Date de fin",
           identification: "Identification",
           important_hindrance: "Obstacle majeur",
           initiator: "Initiateur",
@@ -1027,6 +1072,7 @@
             one: "Endroit",
             other: "Endroits"
           },
+          main_contractor: "Contractant principal",
           no: "non",
           no_hindrance: "aucun obstacle spécifié",
           no_organisation: "aucun organisation spécifié",
@@ -1038,8 +1084,10 @@
           },
           phone: "Numéro telephone",
           recurrence: "Récurrences",
+          reference: "Réference",
           source: "Source",
           state: "Etat",
+          type: "Type",
           url: "URL",
           yes: "oui"
         }
@@ -1089,7 +1137,12 @@
   function formatDataField(field) {
     if (typeof field === 'string') {
       if (/^https?:\/\//.test(field)) { // Website
-        return '<a href="' + encodeURI(field) + '" target="_blank">' + field + '</a>';
+        if (field.indexOf('|') == -1) {
+          return '<a href="' + encodeURI(field) + '" target="_blank">' + field + '</a>';
+        } else {
+          var dataParts = field.split('|');
+          return '<a href="' + encodeURI(dataParts[0]) + '" target="_blank">' + dataParts[1] + '</a>';
+        }
       } else if (/^[^ ]+@[^ ]+\.[a-zA-Z0-9]+$/.test(field)) { // E-mail
         return '<a href="mailto:' + encodeURI(field) + '" target="_blank">' + field + '</a>';
       } else {
