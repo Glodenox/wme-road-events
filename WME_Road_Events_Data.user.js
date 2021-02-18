@@ -3,7 +3,7 @@
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
-// @version     1.7.2
+// @version     1.7.3
 // @connect     api.gipod.vlaanderen.be
 // @connect     *
 // @grant       GM_xmlhttpRequest
@@ -62,16 +62,6 @@
       roadEventsFooter.style.fontSize = '11px';
       roadEventsFooter.style.marginTop = '1em';
       roadEventsContent.appendChild(roadEventsFooter);
-
-      W.app.modeController.model.bind('change:mode', function(model, modeId) {
-        if (modeId == 0) {
-          userInfo = document.getElementById('user-info');
-          navTabs = userInfo.querySelector('.nav-tabs');
-          tabContent = userInfo.querySelector('.tab-content');
-          navTabs.appendChild(roadEventsTab);
-          tabContent.appendChild(roadEventsContent);
-        }
-      });
 
       return {
         add: function(element) {
