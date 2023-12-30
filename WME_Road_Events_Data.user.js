@@ -3,7 +3,7 @@
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
-// @version     1.7.3
+// @version     1.7.4
 // @connect     api.gipod.vlaanderen.be
 // @connect     *
 // @grant       GM_xmlhttpRequest
@@ -516,7 +516,7 @@
         update: function() {
           return new Promise(function(resolve, reject) {
             // Obtain the bounds and transform them to the projection used by GIPOD
-            var bounds = W.map.calculateBounds().transform(W.map.getProjectionObject(), projection);
+            var bounds = (new OpenLayers.Bounds(W.map.calculateBounds())).transform(W.map.getProjectionObject(), projection);
             // bounding box: left bottom coordinate | right top coordinate
             var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
             GM_xmlhttpRequest({
@@ -651,7 +651,7 @@
         update: function() {
           return new Promise(function(resolve, reject) {
             // Obtain the bounds and transform them to the projection used by GIPOD
-            var bounds = W.map.calculateBounds().transform(W.map.getProjectionObject(), projection);
+            var bounds = (new OpenLayers.Bounds(W.map.calculateBounds())).transform(W.map.getProjectionObject(), projection);
             // bounding box: left bottom coordinate | right top coordinate
             var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
             GM_xmlhttpRequest({
