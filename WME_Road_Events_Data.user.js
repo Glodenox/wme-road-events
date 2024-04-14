@@ -3,13 +3,15 @@
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
-// @version     1.7.4
-// @connect     api.gipod.vlaanderen.be
+// @version     1.8.0
+// @connect     geo.api.vlaanderen.be
 // @connect     *
 // @grant       GM_xmlhttpRequest
 // ==/UserScript==
 
 /* global I18n, W, $, OpenLayers */
+
+let styleElement;
 
 (function() {
   var UI = {},
@@ -43,6 +45,7 @@
     if (!localStorage.WME_RoadEventsData) {
       var data = {};
       data.disabledSources = [];
+      data.relevantOnly = true;
       localStorage.WME_RoadEventsData = JSON.stringify(data);
     }
 
@@ -74,6 +77,7 @@
       // List to contain results encapsulated in this object
       var ul = document.createElement('ul');
       filterPane.style.display = 'none';
+      filterPane.style.marginTop  = '5px';
 
       function parseDate(date) {
         return date.getFullYear() + '/' + zeroPad(date.getMonth()+1) + '/' + zeroPad(date.getDate()) + ' ' + zeroPad(date.getHours()) + ':' + zeroPad(date.getMinutes());
@@ -130,21 +134,38 @@
       filterForm.className = 'form-horizontal';
       var sourceGroup = document.createElement('div');
       sourceGroup.className = 'form-group';
+      sourceGroup.style.backgroundColor = '#ccc';
+      sourceGroup.style.paddingBottom = '5px';
       var generalLabel = document.createElement('label');
       generalLabel.className = 'col-sm-3 control-label';
       generalLabel.appendChild(document.createTextNode('Sources:'));
       sourceGroup.appendChild(generalLabel);
       var sourceList = document.createElement('div');
       sourceList.className = 'col-sm-9';
-
       sourceGroup.appendChild(sourceList);
+
+      // Allow showing only the relevant data
+      var relevantOnlyGroup = document.createElement('div');
+      relevantOnlyGroup.className = 'checkbox col-sm-12';
+      var relevantOnlyLabel = document.createElement('label');
+      var relevantOnlyCheckbox = document.createElement('input');
+      relevantOnlyCheckbox.type = 'checkbox';
+      relevantOnlyCheckbox.checked = JSON.parse(localStorage.WME_RoadEventsData).relevantOnly !== false;
+      relevantOnlyLabel.appendChild(relevantOnlyCheckbox);
+      relevantOnlyLabel.appendChild(document.createTextNode(I18n.t('road_events.search.relevant_results_only')));
+      relevantOnlyGroup.appendChild(relevantOnlyLabel);
+      relevantOnlyCheckbox.addEventListener('click', () => {
+        let data = JSON.parse(localStorage.WME_RoadEventsData);
+        data.relevantOnly = relevantOnlyCheckbox.checked;
+        localStorage.WME_RoadEventsData = JSON.stringify(data);
+      });
+      sourceGroup.appendChild(relevantOnlyGroup);
+
       filterForm.appendChild(sourceGroup);
       filterPane.appendChild(filterForm);
       UI.Tab.add(filterPane);
 
       ul.className = 'result-list';
-      ul.style.marginTop = '5px';
-      ul.style.paddingLeft = '10px';
       UI.Tab.add(ul);
 
       return {
@@ -154,9 +175,6 @@
           ul.style.listStyleType = 'decimal';
           events.forEach(function(event, index) {
             var li = document.createElement('li');
-            li.className = 'result session-available';
-            li.style.fontWeight = 'bold';
-            li.style.paddingLeft = '0';
             var head = document.createElement('p');
             head.className = 'title';
             if (event.color) {
@@ -438,8 +456,8 @@
             activeEvent = detail;
             if (detail.vector) {
               UI.Layer.add(detail.vector);
-              W.map.zoomToExtent(detail.vector.geometry.getBounds());
             }
+            W.map.moveTo(OpenLayers.LonLat.fromArray([ event.coordinate.x, event.coordinate.y ]));
           });
         },
         // Update all sources for the current location
@@ -500,45 +518,56 @@
     }();
     window.RoadEvents = RoadEvents;
 
-    // Data source: GIPOD Work Assignments (Flanders, Belgium)
+    // Data source: GIPOD Mobility Hindrances (Flanders, Belgium)
     RoadEvents.addSource(function() {
-      var url = 'https://api.gipod.vlaanderen.be/ws/v1/workassignment',
+      var url = 'https://geo.api.vlaanderen.be/GIPOD/wfs?SERVICE=WFS&REQUEST=GetFeature&VERSION=2.0.0&TYPENAMES=GIPOD:HINDER&SRSNAME=urn:x-ogc:def:crs:EPSG:4326&outputFormat=application/json',
           projection = new OpenLayers.Projection("EPSG:4326"),
           cache = [], // cached event details,
-          bounds = new OpenLayers.Bounds(280525, 6557859, 661237, 6712007);
+          bounds = new OpenLayers.Bounds(280525, 6557859, 661237, 6712007)
+          relevantConsequences = ['Geen doorgang voor gemotoriseerd verkeer', 'Geen doorgang voor gemotoriseerd verkeer uitgezonderd hulpdiensten', 'Geen doorgang voor gemotoriseerd verkeer uitgezonderd openbaar vervoer', 'Geen doorgang voor gemotoriseerd verkeer uitgezonderd plaatselijk verkeer', 'Afgesloten in 1 rijrichting', 'Afgesloten in 1 rijrichting uitgezonderd hulpdiensten', 'Afgesloten in 1 rijrichting uitgezonderd openbaar vervoer', 'Rijrichting omgekeerd'];
 
       return {
-        id: 'gipod_work',
-        name: 'GIPOD Work Assignments',
+        id: 'gipod_mobility',
+        name: 'GIPOD Mobility Hindrances',
         intersects: function(view) {
           return bounds.intersectsBounds(view);
         },
         update: function() {
           return new Promise(function(resolve, reject) {
-            // Obtain the bounds and transform them to the projection used by GIPOD
-            var bounds = (new OpenLayers.Bounds(W.map.calculateBounds())).transform(W.map.getProjectionObject(), projection);
-            // bounding box: left bottom coordinate | right top coordinate
-            var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
+            // Obtain the bounds of the current view
+            var bounds = new OpenLayers.Bounds(W.map.calculateBounds());
+            var bbox = bounds.left + "," + bounds.bottom + "," + bounds.right + "," + bounds.top + ",EPSG:4326";
             GM_xmlhttpRequest({
               method: 'GET',
-              url: url + '?bbox=' + bbox,
+              url: url + '&BBOX=' + bbox,
               onload: function(response) {
                 var rawData = JSON.parse(response.responseText);
-                if (!rawData) {
+                if (!rawData || !rawData.features) {
                   resolve([]);
                   return;
                 }
-                var roadEvents = rawData.map(function(data) {
-                  return {
-                    id: escapeString(data.gipodId),
-                    source: 'gipod_work',
-                    description: escapeString(data.description),
-                    start: data.startDateTime,
-                    end: data.endDateTime,
-                    hindrance: data.importantHindrance,
-                    color: (data.importantHindrance ? '#ff3333' : '#ff8c00'),
-                    coordinate: new OpenLayers.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, W.map.getProjectionObject())
+                let isRelevant = (event) => {
+                  // Don't filter if not requested
+                  if (JSON.parse(localStorage.WME_RoadEventsData).relevantOnly === false) {
+                    return true;
+                  }
+                  let consequences = event.properties.Consequences.split(';');
+                  return relevantConsequences.some(consequence => consequences.includes(consequence));
+                };
+                var roadEvents = rawData.features.filter(isRelevant).map(function(data) {
+                  let event = {
+                    id: data.id,
+                    source: 'gipod_mobility',
+                    description: escapeString(data.properties.HindranceDescription),
+                    start: data.properties.HindranceStart,
+                    end: data.properties.HindranceEnd,
+                    hindrance: data.properties.SevereHindrance,
+                    color: (data.properties.SevereHindrance ? '#ff3333' : '#ff8c00'),
+                    coordinate: (new OpenLayers.Bounds(data.bbox)).toGeometry().transform(projection, W.map.getProjectionObject()).getCentroid(),
+                    rawData: data
                   };
+                  cache[data.id] = event;
+                  return event;
                 });
                 resolve(roadEvents);
               },
@@ -550,221 +579,53 @@
         },
         get: function(gipodId, callback) {
           if (cache[gipodId]) {
-            callback(cache[gipodId]);
-          } else {
-            GM_xmlhttpRequest({
-              method: 'GET',
-              url: url + '/' + gipodId,
-              onload: function(response) {
-                var data = JSON.parse(response.responseText);
-                if (data.hindrance === null) {
-                  data.hindrance = {
-                    description: I18n.t('road_events.detail.no_hindrance'),
-                    locations: [],
-                    effects: []
-                  };
-                }
-                if (data.contactDetails === null) {
-                  data.contactDetails = {
-                    organisation: I18n.t('road_events.detail.no_organisation')
-                  };
-                }
-                var vector = null;
-                if (data.location.geometry !== null) {
-                  var poly = null;
-                  if (data.location.geometry.type == 'Polygon') {
-                    var ring = new OpenLayers.Geometry.LinearRing(data.location.geometry.coordinates[0].map(function(coord) {
-                      return new OpenLayers.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
-                    }));
-                    poly = new OpenLayers.Geometry.Polygon([ ring ]);
-                  } else if (data.location.geometry.type == 'MultiPolygon') {
-                    var rings = data.location.geometry.coordinates[0].map(function(coords) {
-                      return new OpenLayers.Geometry.LinearRing(coords.map(function(coord) {
-                        return new OpenLayers.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
-                      }));
-                    });
-                    poly = new OpenLayers.Geometry.Polygon(rings);
-                  }
-                  if (poly !== null) {
-                    vector = new OpenLayers.Feature.Vector(poly, { type: 'area' }, { fillOpacity: 0.6, fillColor: '#ff8c00', strokeColor: '#eeeeee'});
-                  }
-                }
-                var roadEvent = {
-                  detail: {
-                    description: escapeString(data.description),
-                    identification: {
-                      periods: [ parseDateTime(escapeString(data.startDateTime)) + ' - ' + parseDateTime(escapeString(data.endDateTime)) ],
-                      cities: data.location.cities ? data.location.cities.map(escapeString) : '',
-                      comment: escapeString(data.comment),
-                      type: escapeString(data.type),
-                      state: escapeString(data.state),
-                      last_update: escapeString(parseDateTime(data.latestUpdate)),
-                      id: escapeString(data.gipodId),
-                      source: 'GIPOD Work Assignments'
-                    },
-                    hindrance: {
-                      important_hindrance: data.hindrance.important === true,
-                      description: escapeString(data.hindrance.description),
-                      direction: escapeString(data.direction),
-                      locations: data.hindrance.locations ? data.hindrance.locations.map(escapeString) : '',
-                      effects: data.hindrance.effects ? data.hindrance.effects.map(escapeString) : ''
-                    },
-                    contact: {
-                      owner: escapeString(data.owner),
-                      contractor: escapeString(data.contactor),
-                      main_contractor: escapeString(data.mainContactor),
-                      organisation: escapeString(data.contactDetails.organisation),
-                      reference: escapeString(data.reference),
-                      email: formatDataField(escapeString(data.contactDetails.email)),
-                      phone: escapeString(data.contactDetails.phoneNumber1)
-                    }
-                  },
-                  start: new Date(data.startDateTime),
-                  end: new Date(data.endDateTime),
-                  id: 'http://www.geopunt.be/kaart?app=Hinder_in_kaart_app&lang=nl&GIPODID=' + escapeString(data.gipodId) + '|' + escapeString(data.gipodId),
-                  vector: vector,
-                  rawData: data
-                };
-                cache[roadEvent.detail.identification.id] = roadEvent;
-                callback(roadEvent);
-              }
-            });
-          }
-        }
-      };
-    }());
-
-    // Data source: GIPOD Manifestations (Flanders, Belgium)
-    RoadEvents.addSource(function() {
-      // Proxy necessary as this API is not available via a secure connection
-      var url = 'https://api.gipod.vlaanderen.be/ws/v1/manifestation',
-        projection = new OpenLayers.Projection("EPSG:4326"),
-        cache = [], // cached event details
-        bounds = new OpenLayers.Bounds(280525, 6557859, 661237, 6712007);
-
-      return {
-        id: 'gipod_manifestation',
-        name: 'GIPOD Manifestations',
-        intersects: function(view) {
-          return bounds.intersectsBounds(view);
-        },
-        update: function() {
-          return new Promise(function(resolve, reject) {
-            // Obtain the bounds and transform them to the projection used by GIPOD
-            var bounds = (new OpenLayers.Bounds(W.map.calculateBounds())).transform(W.map.getProjectionObject(), projection);
-            // bounding box: left bottom coordinate | right top coordinate
-            var bbox = bounds.left + "," + bounds.bottom + "|" + bounds.right + "," + bounds.top;
-            GM_xmlhttpRequest({
-              method: 'GET',
-              url: url + '?bbox=' + bbox,
-              timeout: 10000,
-              onload: function(response) {
-                var rawData = JSON.parse(response.responseText);
-                if (!rawData) {
-                  resolve([]);
-                  return;
-                }
-                var roadEvents = rawData.map(function(data) {
-                  return {
-                    id: escapeString(data.gipodId),
-                    source: 'gipod_manifestation',
-                    description: escapeString(data.description),
-                    start: data.startDateTime,
-                    end: data.endDateTime,
-                    hindrance: data.importantHindrance,
-                    color: (data.importantHindrance ? '#3333ff' : '#008cff'),
-                    coordinate: new OpenLayers.Geometry.Point(data.coordinate.coordinates[0], data.coordinate.coordinates[1]).transform(projection, W.map.getProjectionObject())
-                  };
+            let data = cache[gipodId];
+            let vector = null;
+            if (data.rawData.geometry !== null) {
+              let poly = null;
+              if (data.rawData.geometry.type == 'Polygon') {
+                let ring = new OpenLayers.Geometry.LinearRing(data.rawData.geometry.coordinates[0].map(function(coord) {
+                  return new OpenLayers.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
+                }));
+                poly = new OpenLayers.Geometry.Polygon([ ring ]);
+              } else if (data.rawData.geometry.type == 'MultiPolygon') {
+                let rings = data.rawData.geometry.coordinates[0].map(function(coords) {
+                  return new OpenLayers.Geometry.LinearRing(coords.map(function(coord) {
+                    return new OpenLayers.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
+                  }));
                 });
-                resolve(roadEvents);
+                poly = new OpenLayers.Geometry.Polygon(rings);
+              }
+              if (poly !== null) {
+                vector = new OpenLayers.Feature.Vector(poly, { type: 'area' }, { fillOpacity: 0.6, fillColor: '#ff8c00', strokeColor: '#eeeeee'});
+              }
+            }
+            let sourceId = data.rawData.properties.HindranceConsequenceOf.split(';')[0].split('/').pop();
+            let roadEvent = {
+              detail: {
+                description: data.description,
+                identification: {
+                  last_update: escapeString(parseDateTime(data.rawData.properties.HindranceLastModifiedOn)),
+                  created_on: escapeString(parseDateTime(data.rawData.properties.HindranceCreatedOn)),
+                  state: escapeString(data.rawData.properties.HindranceStatus),
+                  id: escapeString(data.id),
+                  source: 'GIPOD Mobility Hindrances'
+                },
+                hindrance: {
+                  important_hindrance: data.hindrance === true,
+                  effects: data.rawData.properties.Consequences ? data.rawData.properties.Consequences.split(';').map(escapeString) : ''
+                },
+                contact: {
+                  owner: escapeString(data.rawData.properties.HindranceOwner)
+                }
               },
-              onerror: function(xhr, text) {
-                resolve([]);
-              }
-            });
-          });
-        },
-        get: function(gipodId, callback) {
-          if (cache[gipodId]) {
-            callback(cache[gipodId]);
-          } else {
-            GM_xmlhttpRequest({
-              method: 'GET',
-              url: url + '/' + gipodId,
-              onload: function(response) {
-                var data = JSON.parse(response.responseText);
-                if (data.hindrance === null) {
-                  data.hindrance = {
-                    description: I18n.t('road_events.detail.no_hindrance'),
-                    locations: [],
-                    effects: []
-                  };
-                }
-                if (data.contactDetails === null) {
-                  data.contactDetails = {
-                    organisation: I18n.t('road_events.detail.no_organisation')
-                  };
-                }
-                var vector = null;
-                if (data.location.geometry !== null) {
-                  var poly = null;
-                  if (data.location.geometry.type == 'Polygon') {
-                    var ring = new OpenLayers.Geometry.LinearRing(data.location.geometry.coordinates[0].map(function(coord) {
-                      return new OpenLayers.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
-                    }));
-                    poly = new OpenLayers.Geometry.Polygon([ ring ]);
-                  } else if (data.location.geometry.type == 'MultiPolygon') {
-                    var rings = data.location.geometry.coordinates[0].map(function(coords) {
-                      return new OpenLayers.Geometry.LinearRing(coords.map(function(coord) {
-                        return new OpenLayers.Geometry.Point(coord[0], coord[1]).transform(projection, W.map.getProjectionObject());
-                      }));
-                    });
-                    poly = new OpenLayers.Geometry.Polygon(rings);
-                  }
-                  if (poly != null) {
-                    vector = new OpenLayers.Feature.Vector(poly, { type: 'area' }, { fillOpacity: 0.6, fillColor: '#ff8c00', strokeColor: '#eeeeee'});
-                  }
-                }
-                var roadEvent = {
-                  detail: {
-                    description: escapeString(data.description),
-                    identification: {
-                      periods: data.periods.map(function(period) {return parseDateTime(escapeString(period.startDateTime)) + ' - ' + parseDateTime(escapeString(period.endDateTime));}),
-                      cities: data.location.cities ? data.location.cities.map(escapeString) : '',
-                      comment: escapeString(data.comment),
-                      event_type: escapeString(data.eventType),
-                      state: escapeString(data.state),
-                      url: escapeString(data.url),
-                      id: escapeString(data.gipodId),
-                      source: 'GIPOD Manifestations'
-                    },
-                    hindrance: {
-                      important_hindrance: data.hindrance.important == true,
-                      description: escapeString(data.hindrance.description),
-                      direction: escapeString(data.direction),
-                      recurrence: escapeString(data.recurrencePattern),
-                      locations: escapeString(data.hindrance.locations),
-                      effects: escapeString(data.hindrance.effects)
-                    },
-                    contact: {
-                      owner: escapeString(data.owner),
-                      initiator: escapeString((data.initiator ? data.initiator.organisation : null)),
-                      organisation: escapeString(data.contactDetails.organisation),
-                      reference: escapeString(data.reference),
-                      email: formatDataField(escapeString(data.contactDetails.email)),
-                      phone: escapeString(data.contactDetails.phoneNumber1)
-                    }
-                  },
-                  start: new Date(data.periods ? data.periods[0].startDateTime : null),
-                  end: new Date(data.periods ? data.periods[0].endDateTime : null),
-                  id: 'http://www.geopunt.be/kaart?app=Hinder_in_kaart_app&lang=nl&GIPODID=' + escapeString(data.gipodId) + '|' + escapeString(data.gipodId),
-                  vector: vector,
-                  rawData: data
-                };
-                cache[roadEvent.detail.identification.id] = roadEvent;
-                callback(roadEvent);
-              }
-            });
+              start: new Date(data.start),
+              end: new Date(data.end),
+              id: 'http://www.geopunt.be/kaart?app=Hinder_in_kaart_app&lang=nl&GIPODID=' + escapeString(sourceId) + '|' + escapeString(sourceId),
+              vector: vector,
+              rawData: data
+            };
+            callback(roadEvent);
           }
         }
       };
@@ -873,6 +734,7 @@
         search: {
           button_label: "Search current area",
           filter_title: "Select data sources",
+          relevant_results_only: "Only show relevant results",
           loading_header: "Loading...",
           loading_subheader: {
             one: "Retrieving information from 1 service",
@@ -914,6 +776,7 @@
           important_hindrance: "Important hindrance",
           initiator: "Initiator",
           last_update: "Last update",
+          created_on: "Created on",
           locations: {
             one: "Location",
             other: "Locations"
@@ -945,6 +808,7 @@
         search: {
           button_label: "Gebied doorzoeken",
           filter_title: "Selecteer databronnen",
+          relevant_results_only: "Toon alleen relevante resultaten",
           loading_header: "Aan het laden...",
           loading_subheader: {
             one: "Informatie aan het opvragen bij 1 dienst",
@@ -986,6 +850,7 @@
           important_hindrance: "Ernstige hinder",
           initiator: "Initiatiefnemer",
           last_update: "Laatst bijgewerkt",
+          created_on: "Aangemaakt op",
           locations: {
             one: "Plaats",
             other: "Plaatsen"
@@ -1017,6 +882,7 @@
         search: {
           button_label: "Cherchez ici",
           filter_title: "Sélectionne sources des données",
+          relevant_results_only: "Affiche uniquement les résultats pertinents",
           loading_header: "Chargement en cours...",
           loading_subheader: {
             one: "En train de obtenir de l'information chez 1 service",
@@ -1058,6 +924,7 @@
           important_hindrance: "Obstacle majeur",
           initiator: "Initiateur",
           last_update: "Dernier mise à jour",
+          created_on: "Date de création",
           locations: {
             one: "Endroit",
             other: "Endroits"
@@ -1153,6 +1020,30 @@
     } else {
       console.log('Road Events', message);
     }
+  }
+
+  // Add style
+  if (!styleElement) {
+    styleElement = document.createElement('style');
+    styleElement.textContent = `
+#sidepanel-roadEvents .result-list {
+  margin-top: 5px;
+  padding-left: 10px;
+}
+
+#sidepanel-roadEvents .result-list li {
+  cursor: pointer;
+  font-weight: bold;
+  padding-left: 0;
+}
+
+#sidepanel-roadEvents .result-list li:hover {
+  background-color: #ddd;
+}
+`;
+  }
+  if (!styleElement.parentNode) {
+    document.head.appendChild(styleElement);
   }
 
   // attempt to bootstrap after about a second
