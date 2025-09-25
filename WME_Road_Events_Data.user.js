@@ -3,7 +3,7 @@
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
-// @version     1.8.0
+// @version     1.8.1
 // @connect     geo.api.vlaanderen.be
 // @connect     *
 // @grant       GM_xmlhttpRequest
@@ -530,7 +530,7 @@ let styleElement;
         id: 'gipod_mobility',
         name: 'GIPOD Mobility Hindrances',
         intersects: function(view) {
-          return bounds.intersectsBounds(view);
+          return view.intersectsBounds(bounds);
         },
         update: function() {
           return new Promise(function(resolve, reject) {
