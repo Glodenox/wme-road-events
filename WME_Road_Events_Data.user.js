@@ -3,7 +3,7 @@
 // @namespace   http://www.tomputtemans.com/
 // @description Retrieve and show road events
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor.*$/
-// @version     1.8.1
+// @version     1.8.2
 // @connect     geo.api.vlaanderen.be
 // @connect     *
 // @grant       GM_xmlhttpRequest
@@ -16,6 +16,13 @@ let styleElement;
 (function() {
   var UI = {},
     RoadEvents;
+  let dateFormat = new Intl.DateTimeFormat("nl-BE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 
   function roadEventsInit() {
     var userInfo = document.getElementById('user-info');
@@ -78,10 +85,6 @@ let styleElement;
       var ul = document.createElement('ul');
       filterPane.style.display = 'none';
       filterPane.style.marginTop  = '5px';
-
-      function parseDate(date) {
-        return date.getFullYear() + '/' + zeroPad(date.getMonth()+1) + '/' + zeroPad(date.getDate()) + ' ' + zeroPad(date.getHours()) + ':' + zeroPad(date.getMinutes());
-      }
 
       function createButton(text, handler, title) {
         var button = document.createElement('button');
@@ -189,12 +192,12 @@ let styleElement;
             if (event.color) {
               subhead.style.paddingLeft = '8px';
             }
-            subhead.appendChild(document.createTextNode(parseDateTime(event.start)));
+            subhead.appendChild(document.createTextNode(dateFormat.format(new Date(event.start))));
             if (event.end) {
               var separator = document.createElement('i');
               separator.className = 'fa fa-fw fa-chevron-right';
               subhead.appendChild(separator);
-              subhead.appendChild(document.createTextNode(parseDateTime(event.end)));
+              subhead.appendChild(document.createTextNode(dateFormat.format(new Date(event.end))));
             }
             li.appendChild(subhead);
             li.addEventListener('click', function() {
@@ -305,10 +308,10 @@ let styleElement;
           var moreInfoData = document.createElement('p');
           moreInfoDataContainer.appendChild(moreInfoData);
           if (event.start) {
-            moreInfoData.innerHTML = '<strong>' + I18n.t('road_events.detail.start_date') + ':</strong> ' + parseDateTime(event.start) + '<br />';
+            moreInfoData.innerHTML = '<strong>' + I18n.t('road_events.detail.start_date') + ':</strong> ' + dateFormat.format(new Date(event.start)) + '<br />';
           }
           if (event.end) {
-            moreInfoData.innerHTML += '<strong>' + I18n.t('road_events.detail.end_date') + ':</strong> ' + parseDateTime(event.end) + '<br />';
+            moreInfoData.innerHTML += '<strong>' + I18n.t('road_events.detail.end_date') + ':</strong> ' + dateFormat.format(new Date(event.end)) + '<br />';
           }
           if (event.id) {
             moreInfoData.innerHTML += '<strong>' + I18n.t('road_events.detail.id') + ':</strong> ' + formatDataField(escapeString(event.id)) + '<br />';
@@ -566,6 +569,7 @@ let styleElement;
                     coordinate: (new OpenLayers.Bounds(data.bbox)).toGeometry().transform(projection, W.map.getProjectionObject()).getCentroid(),
                     rawData: data
                   };
+                  console.log(event);
                   cache[data.id] = event;
                   return event;
                 });
@@ -605,8 +609,8 @@ let styleElement;
               detail: {
                 description: data.description,
                 identification: {
-                  last_update: escapeString(parseDateTime(data.rawData.properties.HindranceLastModifiedOn)),
-                  created_on: escapeString(parseDateTime(data.rawData.properties.HindranceCreatedOn)),
+                  last_update: escapeString(dateFormat.format(new Date(data.rawData.properties.HindranceLastModifiedOn))),
+                  created_on: escapeString(dateFormat.format(new Date(data.rawData.properties.HindranceCreatedOn))),
                   state: escapeString(data.rawData.properties.HindranceStatus),
                   id: escapeString(data.id),
                   source: 'GIPOD Mobility Hindrances'
@@ -956,14 +960,6 @@ let styleElement;
         I18n.translations[locale].road_events = strings[locale];
       }
     });
-  }
-
-  // Input: Unix timestamp or ISO string - Output: 2014-12-22 00:00 in local timezone
-  function parseDateTime(datetime) {
-    if (isNaN(datetime)) {
-      return datetime.replace(/(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})(:\d{2})(\.\d+)?.*/, "$1-$2-$3 $4");
-    }
-    return new Date(datetime).toISOString().replace(/(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})(:\d{2})(\.\d+)?.*/, "$1-$2-$3 $4");
   }
 
   function escapeString(text) {
